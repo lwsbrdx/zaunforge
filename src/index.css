@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+@theme {
+  --color-zaun-bg: #0a0e14;
+  --color-zaun-surface: #131a24;
+  --color-zaun-card: #1a2332;
+  --color-zaun-border: #2a3a4e;
+  --color-zaun-glow: #00c9a7;
+  --color-zaun-gold: #c8aa6e;
+  --color-zaun-text: #e2e8f0;
+  --color-zaun-muted: #8892a4;
+
+  --color-stat-ad: #ff6b35;
+  --color-stat-ap: #7b68ee;
+  --color-stat-hp: #22c55e;
+  --color-stat-armor: #f59e0b;
+  --color-stat-mr: #60a5fa;
+  --color-stat-as: #fbbf24;
+  --color-stat-crit: #ef4444;
+  --color-stat-ms: #a78bfa;
+
+  --color-tag-fighter: #e67e22;
+  --color-tag-mage: #9b59b6;
+  --color-tag-assassin: #e74c3c;
+  --color-tag-marksman: #2ecc71;
+  --color-tag-tank: #3498db;
+  --color-tag-support: #1abc9c;
+}
+
+body {
+  margin: 0;
+  background: var(--color-zaun-bg);
+  color: var(--color-zaun-text);
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-zaun-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-zaun-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-zaun-glow);
+}

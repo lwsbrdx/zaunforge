@@ -1,0 +1,181 @@
+// Data Dragon raw types
+
+export interface DDChampionList {
+  version: string;
+  data: Record<string, DDChampion>;
+}
+
+export interface DDChampion {
+  id: string;
+  key: string;
+  name: string;
+  title: string;
+  tags: ChampionTag[];
+  partype: string;
+  info: {
+    attack: number;
+    defense: number;
+    magic: number;
+    difficulty: number;
+  };
+  stats: ChampionStats;
+  image: DDImage;
+}
+
+export interface ChampionStats {
+  hp: number;
+  hpperlevel: number;
+  mp: number;
+  mpperlevel: number;
+  movespeed: number;
+  armor: number;
+  armorperlevel: number;
+  spellblock: number;
+  spellblockperlevel: number;
+  attackrange: number;
+  hpregen: number;
+  hpregenperlevel: number;
+  mpregen: number;
+  mpregenperlevel: number;
+  crit: number;
+  critperlevel: number;
+  attackdamage: number;
+  attackdamageperlevel: number;
+  attackspeed: number;
+  attackspeedperlevel: number;
+}
+
+export type ChampionTag = 'Fighter' | 'Mage' | 'Assassin' | 'Marksman' | 'Tank' | 'Support';
+
+export interface DDItemList {
+  version: string;
+  data: Record<string, DDItem>;
+}
+
+export interface DDItem {
+  name: string;
+  description: string;
+  plaintext: string;
+  colloq: string;
+  from?: string[];
+  into?: string[];
+  depth?: number;
+  gold: {
+    base: number;
+    total: number;
+    sell: number;
+    purchasable: boolean;
+  };
+  tags: string[];
+  maps: Record<string, boolean>;
+  stats: ItemStats;
+  image: DDImage;
+  effect?: Record<string, string>;
+  requiredChampion?: string;
+  requiredAlly?: string;
+  hideFromAll?: boolean;
+  consumed?: boolean;
+  group?: string;
+}
+
+export interface ItemStats {
+  FlatPhysicalDamageMod?: number;
+  FlatMagicDamageMod?: number;
+  FlatHPPoolMod?: number;
+  FlatMPPoolMod?: number;
+  FlatArmorMod?: number;
+  FlatSpellBlockMod?: number;
+  FlatMovementSpeedMod?: number;
+  PercentMovementSpeedMod?: number;
+  PercentAttackSpeedMod?: number;
+  FlatCritChanceMod?: number;
+  PercentLifeStealMod?: number;
+  FlatHPRegenMod?: number;
+}
+
+export interface DDImage {
+  full: string;
+  sprite: string;
+  group: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+// Parsed item with all stats (including from description)
+
+export interface ParsedStats {
+  attackDamage: number;
+  abilityPower: number;
+  health: number;
+  mana: number;
+  armor: number;
+  magicResist: number;
+  attackSpeed: number;
+  critChance: number;
+  critDamage: number;
+  lifeSteal: number;
+  abilityHaste: number;
+  lethality: number;
+  armorPen: number;
+  magicPen: number;
+  magicPenPercent: number;
+  moveSpeed: number;
+  moveSpeedPercent: number;
+  omnivamp: number;
+  tenacity: number;
+  healShieldPower: number;
+  hpRegen: number;
+}
+
+export interface ParsedItem {
+  id: string;
+  name: string;
+  description: string;
+  plaintext: string;
+  goldTotal: number;
+  goldBase: number;
+  stats: ParsedStats;
+  tags: string[];
+  depth: number;
+  isBoot: boolean;
+  group?: string;
+  imageUrl: string;
+  from?: string[];
+  requiredChampion?: string;
+}
+
+// Build engine types
+
+export type Archetype =
+  | 'ad_carry'
+  | 'ap_mage'
+  | 'ad_assassin'
+  | 'ap_assassin'
+  | 'ad_bruiser'
+  | 'ap_bruiser'
+  | 'tank'
+  | 'enchanter'
+  | 'tank_support';
+
+export type StatWeights = Record<keyof ParsedStats, number>;
+
+export interface BuildResult {
+  items: ParsedItem[];
+  boot: ParsedItem | null;
+  totalStats: ParsedStats;
+  totalGold: number;
+  score: number;
+  archetype: Archetype;
+}
+
+export interface AppState {
+  version: string | null;
+  champions: DDChampion[];
+  items: ParsedItem[];
+  selectedChampion: DDChampion | null;
+  build: BuildResult | null;
+  loading: boolean;
+  error: string | null;
+}
