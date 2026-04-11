@@ -10,7 +10,7 @@ interface AbilitiesPanelProps {
 const SPELL_KEYS = ['Q', 'W', 'E', 'R'] as const;
 
 export function AbilitiesPanel({ detail, version }: AbilitiesPanelProps) {
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
 
   const abilities = [
     {
@@ -42,19 +42,15 @@ export function AbilitiesPanel({ detail, version }: AbilitiesPanelProps) {
       {/* Ability icons row */}
       <div className="px-5 py-3 flex gap-2 justify-center border-b border-zaun-border/50">
         {abilities.map((ability, i) => (
-          <div
+          <button
             key={ability.key}
-            className="relative"
-            onMouseEnter={() => setHoveredIndex(i)}
-            onMouseLeave={() => setHoveredIndex(null)}
+            onClick={() => setSelectedIndex(selectedIndex === i ? null : i)}
+            className={`relative w-12 h-12 rounded-lg overflow-hidden border-2 cursor-pointer transition-all duration-150 ${
+              selectedIndex === i
+                ? 'border-zaun-glow scale-110 shadow-lg shadow-zaun-glow/20'
+                : 'border-zaun-border hover:border-zaun-muted hover:scale-105'
+            }`}
           >
-            <div
-              className={`relative w-12 h-12 rounded-lg overflow-hidden border-2 cursor-pointer transition-all duration-150 ${
-                hoveredIndex === i
-                  ? 'border-zaun-glow scale-110 shadow-lg shadow-zaun-glow/20'
-                  : 'border-zaun-border hover:border-zaun-muted'
-              }`}
-            >
               <img
                 src={ability.imageUrl}
                 alt={ability.name}
@@ -69,18 +65,17 @@ export function AbilitiesPanel({ detail, version }: AbilitiesPanelProps) {
               >
                 {ability.key}
               </span>
-            </div>
-          </div>
+          </button>
         ))}
       </div>
 
-      {/* Tooltip / detail area */}
+      {/* Detail area */}
       <div className="px-5 py-3 min-h-[120px]">
-        {hoveredIndex !== null ? (
-          <AbilityDetail ability={abilities[hoveredIndex]} />
+        {selectedIndex !== null ? (
+          <AbilityDetail ability={abilities[selectedIndex]} />
         ) : (
           <p className="text-xs text-zaun-muted text-center py-4">
-            Hover an ability to see details
+            Click an ability to see details
           </p>
         )}
       </div>
