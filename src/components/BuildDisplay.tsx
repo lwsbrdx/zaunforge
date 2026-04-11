@@ -1,6 +1,7 @@
 import type { BuildResult, DDChampion, ParsedStats } from '../types';
 import { getArchetypeLabel, getArchetypeColor } from '../engine/optimizer';
 import { ItemCard } from './ItemCard';
+import { BuildExplanationPanel } from './BuildExplanation';
 
 interface BuildDisplayProps {
   champion: DDChampion;
@@ -40,6 +41,9 @@ export function BuildDisplay({ champion, build, version }: BuildDisplayProps) {
           </div>
         </div>
       </div>
+
+      {/* Build explanation */}
+      <BuildExplanationPanel explanation={build.explanation} />
 
       {/* Build items */}
       <div>

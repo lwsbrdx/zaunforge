@@ -6,6 +6,8 @@ import type {
   ParsedItem,
   ParsedStats,
   BuildResult,
+  BuildExplanation,
+  ItemReason,
 } from '../types';
 
 // ─── Archetype detection ───────────────────────────────────────────
@@ -24,34 +26,44 @@ export function detectArchetype(champion: DDChampion): Archetype {
     if (secondary === 'Fighter') return 'ap_bruiser';
     return 'ap_mage';
   }
-  if (primary === 'Fighter') return isAP ? 'ap_bruiser' : 'ad_bruiser';
+  if (primary === 'Fighter') {
+    if (isAP) return 'ap_bruiser';
+    return 'ad_bruiser';
+  }
   if (primary === 'Tank') return secondary === 'Support' ? 'tank_support' : 'tank';
   if (primary === 'Support') return secondary === 'Tank' ? 'tank_support' : 'enchanter';
   return 'ad_bruiser';
 }
 
-// ─── Champion profile — extracted from kit analysis ────────────────
+// ─── Champion profile ─────────────────────────────────────────────
 
 interface ChampionProfile {
-  /** % of total damage that is true damage (reduces magic pen value) */
   trueDamageRatio: number;
-  /** Total AP ratio of full combo — higher = AP more valuable */
   totalApRatio: number;
-  /** Does this champ weave autos between spells? (Spellblade synergy) */
+  totalAdRatio: number;
   spellbladeUser: boolean;
-  /** Does this champ have multi-hit / DoT? (burn item synergy) */
   multiHit: boolean;
-  /** Is this champ a burst assassin? (execute item synergy) */
   burstPattern: boolean;
-  /** Does this champ rely on ult heavily? (ult AH synergy) */
   ultReliant: boolean;
-  /** Does this champ use mana? */
   usesMana: boolean;
-  /** Base movespeed — lower = MS items more valuable */
   baseMoveSpeed: number;
+  /** DoT-heavy champion (Brand, Malzahar) — burn items synergy */
+  dotPattern: boolean;
+  /** On-hit champion (Yi, Kayle, Kog) — on-hit/AS items synergy */
+  onHitSynergy: boolean;
+  /** Crit-scaling champion (ADCs, Yi Q) */
+  critSynergy: boolean;
+  /** Life steal synergy (Samira R, ADCs) */
+  lifeStealSynergy: boolean;
+  /** Heavy AoE kit (Brand, Samira R) */
+  aoeHeavy: boolean;
+  /** Melee champion */
+  isMelee: boolean;
+  /** Attack speed focused (Yi, ADCs) */
+  attackSpeedFocused: boolean;
 }
 
-function buildChampionProfile(champion: DDChampion): ChampionProfile {
+function buildChampionProfile(champion: DDChampion, _archetype: Archetype): ChampionProfile {
   const tags = champion.tags;
   const info = champion.info;
   const stats = champion.stats;
@@ -59,225 +71,505 @@ function buildChampionProfile(champion: DDChampion): ChampionProfile {
   const isAssassin = tags.includes('Assassin');
   const isMage = tags.includes('Mage');
   const isFighter = tags.includes('Fighter');
+  const isMarksman = tags.includes('Marksman');
   const usesMana = champion.partype === 'Mana';
+  const isMelee = stats.attackrange <= 300;
 
-  // Estimate AP ratio from magic rating (1-10)
-  // Most mages: 2.5-4.0 total AP ratio
   const totalApRatio = isAP ? (info.magic / 10) * 4.0 : (info.magic / 10) * 2.0;
+  const totalAdRatio = !isAP ? (info.attack / 10) * 4.0 : (info.attack / 10) * 1.5;
 
-  // True damage is rare — only a few champs have it significantly
-  // We can't detect this from DDragon summary, so default to 0
-  // Champions with known true damage on basic kit get a bump
-  const trueDamageRatio = 0;
+  // DoT: mages with support secondary (Brand), or low burst + high magic
+  const dotPattern = isMage && (tags.includes('Support') || (info.magic >= 8 && !isAssassin && info.attack <= 3));
 
-  // Spellblade: champs with short cooldowns and auto-attack weaving
-  const spellbladeUser = isAP && isAssassin;
+  // On-hit: fighters with high attack rating, melee
+  const onHitSynergy = isMelee && isFighter && info.attack >= 8;
 
-  // Multi-hit: mages with AoE or DoT patterns
-  const multiHit = isMage && info.magic >= 7;
+  // Crit: marksmen, or fighters with very high attack
+  const critSynergy = isMarksman || (info.attack >= 9 && !isAP);
 
-  // Burst: assassins and burst mages
-  const burstPattern = isAssassin || (isMage && info.attack <= 3 && info.magic >= 7);
+  // Life steal: marksmen, especially with high attack
+  const lifeStealSynergy = isMarksman || (isFighter && !isAP && info.attack >= 7);
 
-  // Ult reliant: most assassins and engage champs
-  const ultReliant = isAssassin || (isFighter && !isAP);
+  // AoE: mages with support tag, marksman+assassin
+  const aoeHeavy = dotPattern || (isMarksman && isAssassin);
+
+  // AS focused: fighters with high attack, marksmen
+  const attackSpeedFocused = onHitSynergy || (isMarksman && info.attack >= 7);
 
   return {
-    trueDamageRatio,
+    trueDamageRatio: 0,
     totalApRatio,
-    spellbladeUser,
-    multiHit,
-    burstPattern,
-    ultReliant,
+    totalAdRatio,
+    spellbladeUser: isAP && isAssassin,
+    multiHit: (isMage && info.magic >= 7) || dotPattern || onHitSynergy,
+    burstPattern: isAssassin || (isMage && !dotPattern && info.magic >= 7),
+    ultReliant: isAssassin || (isFighter && !isAP),
     usesMana,
     baseMoveSpeed: stats.movespeed,
+    dotPattern,
+    onHitSynergy,
+    critSynergy,
+    lifeStealSynergy,
+    aoeHeavy,
+    isMelee,
+    attackSpeedFocused,
   };
 }
 
-// ─── Known item names for synergy detection ───────────────────────
+// ─── Build explanation summary ────────────────────────────────────
 
-const ITEM_SYNERGIES = {
-  // Rabadon's Deathcap: +30% total AP — exponentially better with more AP
-  rabadons: (name: string) => name.includes("Rabadon"),
-  // Shadowflame: execute below 40% HP — burst synergy
-  shadowflame: (name: string) => name.includes("Shadowflame"),
-  // Lich Bane / Spellblade items
-  spellblade: (name: string) =>
-    name.includes("Lich Bane") || name.includes("Dusk and Dawn"),
-  // Burn items: Liandry, Blackfire, Fated Ashes
-  burn: (name: string) =>
-    name.includes("Liandry") || name.includes("Blackfire") || name.includes("Fated Ashes"),
-  // Luden's Echo: burst poke
-  ludens: (name: string) => name.includes("Luden"),
-  // Malignance: ult AH
-  malignance: (name: string) => name.includes("Malignance"),
-  // Cosmic Drive: sustained MS + AH
-  cosmicDrive: (name: string) => name.includes("Cosmic Drive"),
-  // Stormsurge: burst + MS
-  stormsurge: (name: string) => name.includes("Stormsurge"),
-  // Hextech Rocketbelt: dash + burst
-  rocketbelt: (name: string) => name.includes("Rocketbelt"),
-  // Zhonya's: stasis
-  zhonyas: (name: string) => name.includes("Zhonya"),
-  // Banshee's: spell shield
-  banshees: (name: string) => name.includes("Banshee"),
-  // Void Staff: % magic pen
-  voidStaff: (name: string) => name.includes("Void Staff"),
-  // Cryptbloom: % magic pen + healing
-  cryptbloom: (name: string) => name.includes("Cryptbloom"),
-  // Bloodletter's Curse: MR shred stacking
-  bloodletters: (name: string) => name.includes("Bloodletter"),
-  // Rod of Ages: scaling + sustain
-  rodOfAges: (name: string) => name.includes("Rod of Ages"),
-  // Archangel's / Seraph's: mana scaling
-  archangels: (name: string) =>
-    name.includes("Archangel") || name.includes("Seraph"),
-  // Riftmaker: sustained combat omnivamp
-  riftmaker: (name: string) => name.includes("Riftmaker"),
-  // Mejai's: snowball
-  mejais: (name: string) => name.includes("Mejai"),
-  // Nashor's Tooth: AS + on-hit AP
-  nashors: (name: string) => name.includes("Nashor"),
-  // Morellonomicon: anti-heal
-  morello: (name: string) => name.includes("Morellonomicon"),
-  // Support items
-  supportItem: (name: string) =>
-    name.includes("Shurelya") || name.includes("Ardent") ||
-    name.includes("Moonstone") || name.includes("Echoes of Helia") ||
-    name.includes("Imperial Mandate") || name.includes("Staff of Flowing") ||
-    name.includes("Redemption") || name.includes("Dawncore"),
-} as const;
-
-function isSupport(archetype: Archetype): boolean {
-  return archetype === 'enchanter' || archetype === 'tank_support';
+function generateProfileTraits(profile: ChampionProfile, archetype: Archetype): string[] {
+  const traits: string[] = [];
+  if (profile.burstPattern) traits.push('Burst damage pattern');
+  if (profile.dotPattern) traits.push('DoT / sustained damage');
+  if (profile.onHitSynergy) traits.push('On-hit synergy');
+  if (profile.critSynergy) traits.push('Critical strike synergy');
+  if (profile.lifeStealSynergy) traits.push('Life steal synergy');
+  if (profile.attackSpeedFocused) traits.push('Attack speed focused');
+  if (profile.spellbladeUser) traits.push('Spellblade user');
+  if (profile.multiHit) traits.push('Multi-hit kit');
+  if (profile.aoeHeavy) traits.push('Heavy AoE');
+  if (profile.usesMana) traits.push('Mana dependent');
+  if (profile.trueDamageRatio > 0.1) traits.push(`~${Math.round(profile.trueDamageRatio * 100)}% true damage`);
+  if (profile.isMelee) traits.push('Melee');
+  if (archetype.startsWith('ap_')) traits.push(`${profile.totalApRatio.toFixed(1)}x AP ratio (est.)`);
+  if (archetype.startsWith('ad_') || archetype === 'ad_carry') traits.push(`${profile.totalAdRatio.toFixed(1)}x AD ratio (est.)`);
+  return traits;
 }
 
-// ─── Synergy scoring ──────────────────────────────────────────────
+function generateSummary(champion: DDChampion, archetype: Archetype, profile: ChampionProfile): string {
+  const name = champion.name;
+  const label = getArchetypeLabel(archetype);
 
-function computeSynergyBonus(
+  if (profile.dotPattern) {
+    return `${name} is a ${label} with sustained DoT and %max HP damage. Build prioritizes burn item synergy, magic penetration (all damage is magic), and ability haste for more spell rotations.`;
+  }
+  if (profile.onHitSynergy) {
+    return `${name} is an auto-attack ${label} with on-hit synergies. Build maximizes attack speed and on-hit damage, with AD for ability scaling. ${profile.trueDamageRatio > 0 ? 'True damage in kit reduces armor penetration value.' : ''}`;
+  }
+  if (profile.critSynergy && profile.lifeStealSynergy) {
+    return `${name} is a ${label} who scales extremely with crit and life steal. Build stacks AD, crit chance, and life steal for maximum DPS and sustain. ${profile.aoeHeavy ? 'AoE abilities multiply life steal effectiveness in teamfights.' : ''}`;
+  }
+  if (profile.burstPattern && archetype.includes('ap')) {
+    return `${name} is a burst ${label} with high AP ratios (~${profile.totalApRatio.toFixed(1)}x on full combo). Build maximizes raw AP, magic penetration, and ability haste. ${profile.trueDamageRatio > 0 ? `~${Math.round(profile.trueDamageRatio * 100)}% of damage is true damage, slightly reducing magic pen value.` : ''}`;
+  }
+  return `${name} is classified as ${label}. Build optimizes for the most gold-efficient stats matching this playstyle.`;
+}
+
+// ─── Item synergy detection + reasons ─────────────────────────────
+
+interface SynergyResult {
+  multiplier: number;
+  reasons: string[];
+}
+
+function computeSynergyWithReasons(
   item: ParsedItem,
   profile: ChampionProfile,
   archetype: Archetype,
   alreadySelected: ParsedItem[],
-): number {
-  let bonus = 1.0;
+): SynergyResult {
+  let multiplier = 1.0;
+  const reasons: string[] = [];
   const name = item.name;
 
-  // ── Filter out support items for non-supports ──
-  if (ITEM_SYNERGIES.supportItem(name) && !isSupport(archetype)) {
-    return 0.01; // basically exclude
+  // ── Exclude support items for non-supports ──
+  const isSupportItem =
+    name.includes("Shurelya") || name.includes("Ardent") ||
+    name.includes("Moonstone") || name.includes("Echoes of Helia") ||
+    name.includes("Imperial Mandate") || name.includes("Staff of Flowing") ||
+    name.includes("Redemption") || name.includes("Dawncore");
+  if (isSupportItem && archetype !== 'enchanter' && archetype !== 'tank_support') {
+    return { multiplier: 0.01, reasons: ['Support item — not suited for this role'] };
   }
 
-  // ── Rabadon's: scales with total AP in build ──
-  if (ITEM_SYNERGIES.rabadons(name)) {
+  // ── Rabadon's Deathcap: +30% total AP, scales with existing AP ──
+  if (name.includes("Rabadon")) {
     const totalAP = alreadySelected.reduce((s, i) => s + i.stats.abilityPower, 0);
-    // Rabadon's gets better the more AP you already have
-    // At 0 existing AP: 1.0x, at 200 AP: 1.6x, at 400 AP: 2.2x
-    bonus *= 1.0 + (totalAP / 200) * 0.6;
-    // Also scales with champion's AP ratios
-    bonus *= 1.0 + profile.totalApRatio * 0.15;
+    const apBonus = 1.0 + (totalAP / 200) * 0.6;
+    const ratioBonus = 1.0 + profile.totalApRatio * 0.15;
+    multiplier *= apBonus * ratioBonus;
+    reasons.push(`+30% total AP multiplier — amplifies ${Math.round(totalAP)} AP already in build`);
+    reasons.push(`High AP ratios (~${profile.totalApRatio.toFixed(1)}x) maximize raw AP value`);
   }
 
-  // ── Shadowflame: execute synergy with burst champions ──
-  if (ITEM_SYNERGIES.shadowflame(name) && profile.burstPattern) {
-    bonus *= 1.4;
+  // ── Shadowflame: execute below 40% HP ──
+  if (name.includes("Shadowflame")) {
+    if (profile.burstPattern) {
+      multiplier *= 1.4;
+      reasons.push('Execute passive (+20% dmg < 40% HP) synergizes with burst combo');
+    }
+    if (profile.dotPattern) {
+      multiplier *= 0.8;
+      reasons.push('Execute less effective with sustained damage pattern');
+    }
   }
 
-  // ── Spellblade: only for auto-weavers ──
-  if (ITEM_SYNERGIES.spellblade(name)) {
-    bonus *= profile.spellbladeUser ? 1.3 : 0.5;
+  // ── Liandry's Torment: burn + %max HP + sustained combat ──
+  if (name.includes("Liandry")) {
+    if (profile.dotPattern) {
+      multiplier *= 1.8;
+      reasons.push('Burn passive double-dips with DoT kit — %max HP burn on every tick');
+      reasons.push('+2% damage/s in combat stacks perfectly with sustained damage');
+    } else if (profile.multiHit) {
+      multiplier *= 1.2;
+      reasons.push('Multi-hit kit keeps burn active on multiple targets');
+    } else {
+      multiplier *= 0.7;
+    }
   }
 
-  // ── Burn items: for multi-hit / sustained damage ──
-  if (ITEM_SYNERGIES.burn(name)) {
-    bonus *= profile.multiHit ? 1.3 : 0.8;
-    // Blackfire Torch is also great for mana + AH
-    if (name.includes("Blackfire") && profile.usesMana) bonus *= 1.15;
+  // ── Rylai's Crystal Scepter: slow on abilities ──
+  if (name.includes("Rylai")) {
+    if (profile.dotPattern) {
+      multiplier *= 1.6;
+      reasons.push('DoT constantly reapplies 30% slow — permaslow on burning targets');
+    } else if (profile.burstPattern) {
+      multiplier *= 0.6;
+    }
   }
 
-  // ── Luden's: burst poke champions ──
-  if (ITEM_SYNERGIES.ludens(name) && profile.burstPattern) {
-    bonus *= 1.2;
+  // ── Blackfire Torch: burn + AP per burning enemy ──
+  if (name.includes("Blackfire")) {
+    if (profile.dotPattern) {
+      multiplier *= 1.5;
+      reasons.push('Burn adds to DoT passive, +4% AP per burning enemy in teamfights');
+    } else if (profile.multiHit && profile.usesMana) {
+      multiplier *= 1.15;
+      reasons.push('Mana + AH + burn synergy with multi-hit kit');
+    }
+    if (profile.usesMana && !profile.dotPattern) {
+      reasons.push('Solves mana needs with 600 Mana + 20 AH');
+    }
   }
 
-  // ── Malignance: ult-reliant champs ──
-  if (ITEM_SYNERGIES.malignance(name)) {
-    bonus *= profile.ultReliant ? 1.3 : 0.6;
+  // ── Luden's Echo: burst poke ──
+  if (name.includes("Luden")) {
+    if (profile.burstPattern) {
+      multiplier *= 1.2;
+      reasons.push('Echo burst adds to poke/burst pattern');
+    }
+    if (profile.dotPattern) {
+      multiplier *= 0.6;
+    }
   }
 
-  // ── Stormsurge: burst + mobility ──
-  if (ITEM_SYNERGIES.stormsurge(name) && profile.burstPattern) {
-    bonus *= 1.25;
+  // ── Spellblade items (Lich Bane, Dusk and Dawn) ──
+  if (name.includes("Lich Bane") || name.includes("Dusk and Dawn")) {
+    if (profile.spellbladeUser) {
+      multiplier *= 1.3;
+      reasons.push('Auto-weaving between spells procs Spellblade efficiently');
+    } else {
+      multiplier *= 0.4;
+    }
   }
 
-  // ── Rocketbelt: melee/short-range AP assassins ──
-  if (ITEM_SYNERGIES.rocketbelt(name)) {
-    const isShortRange = profile.baseMoveSpeed <= 340;
-    bonus *= (profile.burstPattern && isShortRange) ? 1.2 : 0.7;
+  // ── Malignance: ult AH ──
+  if (name.includes("Malignance")) {
+    if (profile.ultReliant) {
+      multiplier *= 1.3;
+      reasons.push('20 Ult AH reduces ultimate cooldown significantly');
+    } else {
+      multiplier *= 0.6;
+    }
   }
 
-  // ── Void Staff: reduced value if champ has high true damage ratio ──
-  if (ITEM_SYNERGIES.voidStaff(name)) {
-    bonus *= 1.0 - profile.trueDamageRatio * 0.5;
+  // ── Stormsurge: burst + MS ──
+  if (name.includes("Stormsurge")) {
+    if (profile.burstPattern) {
+      multiplier *= 1.25;
+      reasons.push('Burst combo triggers Squall passive (25% HP in 2.5s) for extra damage');
+    }
   }
 
-  // ── Cryptbloom: same pen reduction + utility ──
-  if (ITEM_SYNERGIES.cryptbloom(name)) {
-    bonus *= 1.0 - profile.trueDamageRatio * 0.3;
+  // ── Rocketbelt: dash + burst for short range ──
+  if (name.includes("Rocketbelt")) {
+    if (profile.burstPattern && profile.baseMoveSpeed <= 340) {
+      multiplier *= 1.2;
+      reasons.push('Dash + burst missiles help close range for combo');
+    } else {
+      multiplier *= 0.7;
+    }
   }
 
-  // ── Nashor's: only for on-hit AP champs ──
-  if (ITEM_SYNERGIES.nashors(name)) {
-    // Bad for burst mages, good for Kayle/Teemo/Diana
-    bonus *= profile.burstPattern ? 0.3 : 0.8;
+  // ── Nashor's Tooth: on-hit AP ──
+  if (name.includes("Nashor")) {
+    if (profile.onHitSynergy) {
+      multiplier *= 1.1;
+      reasons.push('On-hit magic damage synergizes with auto-attack focus');
+    } else if (profile.burstPattern) {
+      multiplier *= 0.25;
+    }
   }
 
-  // ── Rod of Ages: scaling, not for assassins who need early power ──
-  if (ITEM_SYNERGIES.rodOfAges(name)) {
-    bonus *= profile.burstPattern ? 0.5 : 1.1;
+  // ── Rod of Ages: scaling, not for burst ──
+  if (name.includes("Rod of Ages")) {
+    if (profile.burstPattern) {
+      multiplier *= 0.4;
+    } else if (profile.dotPattern) {
+      multiplier *= 0.9;
+    }
   }
 
-  // ── Riftmaker: sustained combat, not burst ──
-  if (ITEM_SYNERGIES.riftmaker(name)) {
-    bonus *= profile.burstPattern ? 0.4 : 1.3;
+  // ── Riftmaker: sustained omnivamp ──
+  if (name.includes("Riftmaker")) {
+    if (profile.dotPattern) {
+      multiplier *= 1.1;
+      reasons.push('Sustained combat ramps omnivamp with DoT');
+    } else if (profile.burstPattern) {
+      multiplier *= 0.35;
+    }
   }
 
-  // ── Mejai's: risky snowball, slight bonus for mobile champs ──
-  if (ITEM_SYNERGIES.mejais(name)) {
-    bonus *= 0.7; // conservative by default, it's a gamble
+  // ── Mejai's: snowball, conservative ──
+  if (name.includes("Mejai")) {
+    multiplier *= 0.6;
   }
 
-  // ── Bloodletter's: MR shred, good for sustained multi-hit ──
-  if (ITEM_SYNERGIES.bloodletters(name)) {
-    bonus *= profile.multiHit ? 1.2 : 0.6;
+  // ── Bloodletter's Curse: MR shred ──
+  if (name.includes("Bloodletter")) {
+    if (profile.dotPattern || profile.multiHit) {
+      multiplier *= 1.2;
+      reasons.push('MR shred stacks quickly with multi-hit/DoT');
+    } else {
+      multiplier *= 0.6;
+    }
   }
 
-  // ── Magic pen value reduced by true damage ratio ──
-  if (item.stats.magicPen > 0 || item.stats.magicPenPercent > 0) {
-    bonus *= 1.0 - profile.trueDamageRatio * 0.3;
+  // ── Cosmic Drive: sustained MS + AH ──
+  if (name.includes("Cosmic Drive")) {
+    if (profile.dotPattern) {
+      multiplier *= 1.15;
+      reasons.push('Sustained damage keeps Spelldance MS active, 25 AH for spell rotations');
+    }
+  }
+
+  // ── Void Staff: % magic pen ──
+  if (name.includes("Void Staff")) {
+    if (profile.trueDamageRatio > 0.15) {
+      multiplier *= 1.0 - profile.trueDamageRatio * 0.5;
+      reasons.push(`True damage portion (${Math.round(profile.trueDamageRatio * 100)}%) doesn't benefit from magic pen`);
+    }
+    if (profile.dotPattern) {
+      reasons.push('All damage is magic — 40% MPen amplifies %max HP burn');
+    }
+    if (!profile.dotPattern && archetype.includes('ap')) {
+      reasons.push('40% magic pen for scaling against MR-stacking targets');
+    }
+  }
+
+  // ── Cryptbloom: % pen + healing ──
+  if (name.includes("Cryptbloom")) {
+    if (profile.trueDamageRatio > 0.15) {
+      multiplier *= 1.0 - profile.trueDamageRatio * 0.3;
+    }
+  }
+
+  // ── Morellonomicon: anti-heal ──
+  if (name.includes("Morellonomicon")) {
+    if (profile.dotPattern) {
+      multiplier *= 1.15;
+      reasons.push('DoT constantly applies Grievous Wounds');
+    }
+  }
+
+  // ═══ AD / ON-HIT / CRIT ITEMS ═══
+
+  // ── Infinity Edge: crit amplifier ──
+  if (name.includes("Infinity Edge")) {
+    if (profile.critSynergy) {
+      const critInBuild = alreadySelected.reduce((s, i) => s + i.stats.critChance, 0);
+      multiplier *= 1.3 + critInBuild * 2.0;
+      reasons.push('Crit damage amplifier — scales multiplicatively with crit chance in build');
+      if (profile.lifeStealSynergy) {
+        reasons.push('Bigger crits = more life steal healing');
+      }
+    } else {
+      multiplier *= 0.3;
+    }
+  }
+
+  // ── Bloodthirster: life steal + shield ──
+  if (name.includes("Bloodthirster")) {
+    if (profile.lifeStealSynergy) {
+      multiplier *= 1.4;
+      reasons.push('Life steal applies at full effectiveness on abilities — massive sustain');
+      if (profile.aoeHeavy) {
+        reasons.push('AoE abilities multiply life steal across all targets hit');
+      }
+    }
+  }
+
+  // ── Blade of the Ruined King: on-hit %HP ──
+  if (name.includes("Blade of the Ruined King")) {
+    if (profile.onHitSynergy) {
+      multiplier *= 1.6;
+      reasons.push('On-hit %current HP synergizes with high attack speed and on-hit application');
+    } else if (profile.attackSpeedFocused) {
+      multiplier *= 1.1;
+    } else {
+      multiplier *= 0.4;
+    }
+  }
+
+  // ── Guinsoo's Rageblade: on-hit converter ──
+  if (name.includes("Guinsoo") || name.includes("Rageblade")) {
+    if (profile.onHitSynergy) {
+      multiplier *= 1.5;
+      reasons.push('Stacking AS + every 3rd auto applies on-hit twice — perfect for on-hit kit');
+    } else {
+      multiplier *= 0.3;
+    }
+  }
+
+  // ── Terminus: on-hit + pen stacking ──
+  if (name.includes("Terminus")) {
+    if (profile.onHitSynergy) {
+      multiplier *= 1.4;
+      reasons.push('On-hit magic damage + stacking armor/magic pen with autos');
+    } else {
+      multiplier *= 0.3;
+    }
+  }
+
+  // ── Wit's End: on-hit + MR ──
+  if (name.includes("Wit's End") || name.includes("Wit's End")) {
+    if (profile.onHitSynergy) {
+      multiplier *= 1.3;
+      reasons.push('On-hit magic damage + MR for durability in fights');
+    } else {
+      multiplier *= 0.4;
+    }
+  }
+
+  // ── Kraken Slayer: true damage on-hit ──
+  if (name.includes("Kraken")) {
+    if (profile.onHitSynergy || profile.attackSpeedFocused) {
+      multiplier *= 1.3;
+      reasons.push('True damage on-hit proc synergizes with high attack speed');
+    }
+  }
+
+  // ── Phantom Dancer: AS + crit + MS ──
+  if (name.includes("Phantom Dancer")) {
+    if (profile.attackSpeedFocused && profile.critSynergy) {
+      multiplier *= 1.2;
+      reasons.push('AS + Crit + MS for auto-attack DPS and kiting');
+    }
+  }
+
+  // ── Lord Dominik's Regards: armor pen ──
+  if (name.includes("Lord Dominik") || name.includes("Dominik")) {
+    if (profile.trueDamageRatio > 0.2) {
+      multiplier *= 0.7;
+      reasons.push('True damage in kit reduces armor pen value');
+    }
+    if (profile.critSynergy) {
+      reasons.push('Armor pen + crit for tank-busting');
+    }
+  }
+
+  // ── Death's Dance: AD bruiser sustain ──
+  if (name.includes("Death's Dance")) {
+    if (profile.isMelee && !archetype.includes('ap')) {
+      multiplier *= 1.3;
+      reasons.push('Damage delay + heal on takedown — essential for melee fighters');
+    } else {
+      multiplier *= 0.5;
+    }
+  }
+
+  // ── Sterak's Gage: anti-burst for melee ──
+  if (name.includes("Sterak")) {
+    if (profile.isMelee && !archetype.includes('ap')) {
+      multiplier *= 1.2;
+      reasons.push('Anti-burst shield + tenacity for melee survivability');
+    } else {
+      multiplier *= 0.3;
+    }
+  }
+
+  // ═══ GLOBAL MODIFIERS ═══
+
+  // ── Magic pen reduced by true damage ratio ──
+  if ((item.stats.magicPen > 0 || item.stats.magicPenPercent > 0) && profile.trueDamageRatio > 0.15) {
+    multiplier *= 1.0 - profile.trueDamageRatio * 0.3;
+  }
+
+  // ── Armor pen reduced by true damage ratio ──
+  if ((item.stats.armorPen > 0 || item.stats.lethality > 0) && profile.trueDamageRatio > 0.15) {
+    multiplier *= 1.0 - profile.trueDamageRatio * 0.25;
   }
 
   // ── Mana items less valuable for non-mana champs ──
   if (item.stats.mana > 0 && !profile.usesMana) {
-    bonus *= 0.3;
+    multiplier *= 0.3;
   }
 
-  // ── Prevent stacking multiple Lost Chapter items (same build path) ──
-  if (item.from?.includes('3802')) { // Lost Chapter
+  // ── Prevent stacking Lost Chapter items ──
+  if (item.from?.includes('3802')) {
     const hasLostChapterItem = alreadySelected.some(i => i.from?.includes('3802'));
-    if (hasLostChapterItem) bonus *= 0.3; // heavy penalty for double mana mythic
+    if (hasLostChapterItem) {
+      multiplier *= 0.25;
+      reasons.push('Already have a Lost Chapter item — diminishing mana returns');
+    }
   }
 
-  return bonus;
+  // ── AP items worthless for pure AD champions ──
+  if (item.stats.abilityPower > 0 && archetype === 'ad_carry' && !profile.onHitSynergy) {
+    multiplier *= 0.1;
+  }
+  if (item.stats.abilityPower > 0 && archetype === 'ad_assassin') {
+    multiplier *= 0.1;
+  }
+
+  // ── AD items worthless for pure AP champions ──
+  if (item.stats.attackDamage > 0 && (archetype === 'ap_mage' || archetype === 'ap_assassin')) {
+    multiplier *= 0.1;
+  }
+
+  // ── AS items bad for pure mages ──
+  if (item.stats.attackSpeed > 0 && (archetype === 'ap_mage' || archetype === 'ap_assassin') && !profile.onHitSynergy) {
+    multiplier *= 0.15;
+  }
+
+  // ── Crit items bad for non-crit champions ──
+  if (item.stats.critChance > 0 && !profile.critSynergy) {
+    multiplier *= 0.15;
+  }
+
+  // Add generic stat-based reason if no specific reasons were generated
+  if (reasons.length === 0) {
+    const topStats = Object.entries(item.stats)
+      .filter(([, v]) => v > 0)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 2)
+      .map(([k]) => STAT_LABELS[k as keyof ParsedStats] || k);
+    if (topStats.length > 0) {
+      reasons.push(`Gold-efficient source of ${topStats.join(' + ')}`);
+    }
+  }
+
+  return { multiplier, reasons };
 }
+
+const STAT_LABELS: Record<keyof ParsedStats, string> = {
+  attackDamage: 'AD', abilityPower: 'AP', health: 'HP', mana: 'Mana',
+  armor: 'Armor', magicResist: 'MR', attackSpeed: 'Attack Speed',
+  critChance: 'Crit', critDamage: 'Crit Damage', lifeSteal: 'Life Steal',
+  abilityHaste: 'Ability Haste', lethality: 'Lethality', armorPen: 'Armor Pen',
+  magicPen: 'Magic Pen', magicPenPercent: '% Magic Pen', moveSpeed: 'Move Speed',
+  moveSpeedPercent: '% Move Speed', omnivamp: 'Omnivamp', tenacity: 'Tenacity',
+  healShieldPower: 'Heal/Shield Power', hpRegen: 'HP Regen',
+};
 
 // ─── Stat weights per archetype ───────────────────────────────────
 
 const ARCHETYPE_WEIGHTS: Record<Archetype, StatWeights> = {
   ad_carry: {
     attackDamage: 3.0, abilityPower: 0, health: 0.3, mana: 0.1,
-    armor: 0.2, magicResist: 0.2, attackSpeed: 3.0, critChance: 3.5,
-    critDamage: 2.0, lifeSteal: 2.0, abilityHaste: 0.5, lethality: 0.5,
+    armor: 0.2, magicResist: 0.2, attackSpeed: 2.5, critChance: 3.5,
+    critDamage: 2.0, lifeSteal: 2.5, abilityHaste: 0.5, lethality: 0.5,
     armorPen: 2.0, magicPen: 0, magicPenPercent: 0, moveSpeed: 0.5,
     moveSpeedPercent: 0.8, omnivamp: 0.5, tenacity: 0.3, healShieldPower: 0, hpRegen: 0,
   },
@@ -303,11 +595,11 @@ const ARCHETYPE_WEIGHTS: Record<Archetype, StatWeights> = {
     moveSpeedPercent: 1.5, omnivamp: 0.5, tenacity: 0.2, healShieldPower: 0, hpRegen: 0,
   },
   ad_bruiser: {
-    attackDamage: 2.5, abilityPower: 0, health: 2.0, mana: 0.3,
-    armor: 1.0, magicResist: 0.8, attackSpeed: 1.0, critChance: 0.3,
-    critDamage: 0.2, lifeSteal: 1.5, abilityHaste: 2.0, lethality: 0.5,
+    attackDamage: 2.5, abilityPower: 0, health: 1.5, mana: 0.2,
+    armor: 0.8, magicResist: 0.6, attackSpeed: 2.0, critChance: 0.3,
+    critDamage: 0.2, lifeSteal: 1.5, abilityHaste: 1.5, lethality: 0.5,
     armorPen: 1.5, magicPen: 0, magicPenPercent: 0, moveSpeed: 0.5,
-    moveSpeedPercent: 0.8, omnivamp: 1.0, tenacity: 1.5, healShieldPower: 0, hpRegen: 0.5,
+    moveSpeedPercent: 0.8, omnivamp: 1.0, tenacity: 1.5, healShieldPower: 0, hpRegen: 0.3,
   },
   ap_bruiser: {
     attackDamage: 0, abilityPower: 2.5, health: 2.0, mana: 0.5,
@@ -339,7 +631,7 @@ const ARCHETYPE_WEIGHTS: Record<Archetype, StatWeights> = {
   },
 };
 
-// Gold value per unit of stat (for normalization)
+// Gold value per unit of stat
 const STAT_NORMALIZATION: Record<keyof ParsedStats, number> = {
   attackDamage: 35, abilityPower: 21.75, health: 2.67, mana: 1.4,
   armor: 20, magicResist: 18, attackSpeed: 2500, critChance: 4000,
@@ -349,7 +641,7 @@ const STAT_NORMALIZATION: Record<keyof ParsedStats, number> = {
   hpRegen: 36,
 };
 
-// ─── Base scoring (gold efficiency × weight) ──────────────────────
+// ─── Scoring ──────────────────────────────────────────────────────
 
 function baseScore(item: ParsedItem, weights: StatWeights): number {
   let score = 0;
@@ -359,27 +651,115 @@ function baseScore(item: ParsedItem, weights: StatWeights): number {
       score += value * STAT_NORMALIZATION[stat] * weights[stat];
     }
   }
-  if (item.goldTotal > 0) {
-    score = score / item.goldTotal;
-  }
+  if (item.goldTotal > 0) score = score / item.goldTotal;
   return score;
 }
 
-// ─── Combined scoring with synergies ──────────────────────────────
+// ─── Main optimizer ───────────────────────────────────────────────
 
-function scoreItemWithSynergies(
-  item: ParsedItem,
-  weights: StatWeights,
-  profile: ChampionProfile,
-  archetype: Archetype,
-  alreadySelected: ParsedItem[],
-): number {
-  const base = baseScore(item, weights);
-  const synergy = computeSynergyBonus(item, profile, archetype, alreadySelected);
-  return base * synergy;
+export function optimizeBuild(
+  champion: DDChampion,
+  allItems: ParsedItem[],
+): BuildResult {
+  const archetype = detectArchetype(champion);
+  const weights = ARCHETYPE_WEIGHTS[archetype];
+  const profile = buildChampionProfile(champion, archetype);
+
+  // Filter valid completed items
+  const completedItems = allItems.filter(item => {
+    if (item.depth < 2) return false;
+    if (item.requiredChampion && item.requiredChampion !== champion.name) return false;
+    if (item.tags.includes('Jungle') && !['tank', 'ad_bruiser', 'ap_bruiser'].includes(archetype)) return false;
+    return true;
+  });
+
+  const boots = completedItems.filter(i => i.isBoot);
+  const nonBoots = completedItems.filter(i => !i.isBoot);
+
+  // Iterative greedy with synergy re-evaluation
+  const selectedItems: ParsedItem[] = [];
+  const itemReasons: ItemReason[] = [];
+  const usedGroups = new Set<string>();
+  const usedIds = new Set<string>();
+
+  for (let slot = 0; slot < 5; slot++) {
+    let bestItem: ParsedItem | null = null;
+    let bestScore = -Infinity;
+    let bestReasons: string[] = [];
+
+    for (const item of nonBoots) {
+      if (usedIds.has(item.id)) continue;
+      if (item.group && usedGroups.has(item.group)) continue;
+
+      const base = baseScore(item, weights);
+      const synergy = computeSynergyWithReasons(item, profile, archetype, selectedItems);
+      const score = base * synergy.multiplier;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestItem = item;
+        bestReasons = synergy.reasons;
+      }
+    }
+
+    if (bestItem) {
+      selectedItems.push(bestItem);
+      itemReasons.push({ item: bestItem, reasons: bestReasons });
+      usedIds.add(bestItem.id);
+      if (bestItem.group) usedGroups.add(bestItem.group);
+    }
+  }
+
+  // Pick best boot
+  let bestBoot: ParsedItem | null = null;
+  let bootReasonData: ItemReason | null = null;
+  {
+    let bestScore = -Infinity;
+    let bestReasons: string[] = [];
+    for (const boot of boots) {
+      const base = baseScore(boot, weights);
+      const synergy = computeSynergyWithReasons(boot, profile, archetype, selectedItems);
+      const score = base * synergy.multiplier;
+      if (score > bestScore) {
+        bestScore = score;
+        bestBoot = boot;
+        bestReasons = synergy.reasons;
+      }
+    }
+    if (bestBoot) {
+      bootReasonData = { item: bestBoot, reasons: bestReasons.length > 0 ? bestReasons : ['Best stat-efficient boot for this archetype'] };
+    }
+  }
+
+  // Compile
+  const allBuildItems = bestBoot ? [bestBoot, ...selectedItems] : selectedItems;
+  const totalStats = sumStats(allBuildItems);
+  const totalGold = allBuildItems.reduce((sum, i) => sum + i.goldTotal, 0);
+  const totalScore = allBuildItems.reduce((sum, i) => {
+    const base = baseScore(i, weights);
+    const syn = computeSynergyWithReasons(i, profile, archetype, selectedItems);
+    return sum + base * syn.multiplier;
+  }, 0);
+
+  const explanation: BuildExplanation = {
+    archetype,
+    archetypeLabel: getArchetypeLabel(archetype),
+    summary: generateSummary(champion, archetype, profile),
+    profileTraits: generateProfileTraits(profile, archetype),
+    itemReasons,
+    bootReason: bootReasonData,
+  };
+
+  return {
+    items: selectedItems,
+    boot: bestBoot,
+    totalStats,
+    totalGold,
+    score: totalScore,
+    archetype,
+    explanation,
+  };
 }
-
-// ─── Stats summation ──────────────────────────────────────────────
 
 function sumStats(items: ParsedItem[]): ParsedStats {
   const total: ParsedStats = {
@@ -398,96 +778,20 @@ function sumStats(items: ParsedItem[]): ParsedStats {
   return total;
 }
 
-// ─── Main optimizer ───────────────────────────────────────────────
-
-export function optimizeBuild(
-  champion: DDChampion,
-  allItems: ParsedItem[],
-): BuildResult {
-  const archetype = detectArchetype(champion);
-  const weights = ARCHETYPE_WEIGHTS[archetype];
-  const profile = buildChampionProfile(champion);
-
-  // Filter to valid completed items
-  const completedItems = allItems.filter(item => {
-    if (item.depth < 2) return false;
-    if (item.requiredChampion && item.requiredChampion !== champion.name) return false;
-    if (item.tags.includes('Jungle') && !['tank', 'ad_bruiser', 'ap_bruiser'].includes(archetype)) return false;
-    return true;
-  });
-
-  const boots = completedItems.filter(i => i.isBoot);
-  const nonBoots = completedItems.filter(i => !i.isBoot);
-
-  // ── Iterative greedy with synergy re-evaluation ──
-  // At each step, re-score all remaining items considering what's already picked.
-  // This lets Rabadon's score increase after AP items are selected, etc.
-  const selectedItems: ParsedItem[] = [];
-  const usedGroups = new Set<string>();
-  const usedIds = new Set<string>();
-
-  for (let slot = 0; slot < 5; slot++) {
-    let bestItem: ParsedItem | null = null;
-    let bestScore = -Infinity;
-
-    for (const item of nonBoots) {
-      if (usedIds.has(item.id)) continue;
-      if (item.group && usedGroups.has(item.group)) continue;
-
-      const score = scoreItemWithSynergies(item, weights, profile, archetype, selectedItems);
-      if (score > bestScore) {
-        bestScore = score;
-        bestItem = item;
-      }
-    }
-
-    if (bestItem) {
-      selectedItems.push(bestItem);
-      usedIds.add(bestItem.id);
-      if (bestItem.group) usedGroups.add(bestItem.group);
-    }
-  }
-
-  // ── Pick best boot ──
-  const scoredBoots = boots
-    .map(b => ({ item: b, score: scoreItemWithSynergies(b, weights, profile, archetype, selectedItems) }))
-    .sort((a, b) => b.score - a.score);
-  const bestBoot = scoredBoots.length > 0 ? scoredBoots[0].item : null;
-
-  // ── Compile result ──
-  const allBuildItems = bestBoot ? [bestBoot, ...selectedItems] : selectedItems;
-  const totalStats = sumStats(allBuildItems);
-  const totalGold = allBuildItems.reduce((sum, i) => sum + i.goldTotal, 0);
-  const totalScore = allBuildItems.reduce(
-    (sum, i) => sum + scoreItemWithSynergies(i, weights, profile, archetype, selectedItems), 0
-  );
-
-  return {
-    items: selectedItems,
-    boot: bestBoot,
-    totalStats,
-    totalGold,
-    score: totalScore,
-    archetype,
-  };
-}
-
 // ─── Labels & colors ──────────────────────────────────────────────
 
 export function getArchetypeLabel(archetype: Archetype): string {
-  const labels: Record<Archetype, string> = {
+  return {
     ad_carry: 'AD Carry', ap_mage: 'AP Mage', ad_assassin: 'AD Assassin',
     ap_assassin: 'AP Assassin', ad_bruiser: 'AD Bruiser', ap_bruiser: 'AP Bruiser',
     tank: 'Tank', enchanter: 'Enchanter', tank_support: 'Tank Support',
-  };
-  return labels[archetype];
+  }[archetype];
 }
 
 export function getArchetypeColor(archetype: Archetype): string {
-  const colors: Record<Archetype, string> = {
+  return {
     ad_carry: '#2ecc71', ap_mage: '#9b59b6', ad_assassin: '#e74c3c',
     ap_assassin: '#e74c3c', ad_bruiser: '#e67e22', ap_bruiser: '#9b59b6',
     tank: '#3498db', enchanter: '#1abc9c', tank_support: '#3498db',
-  };
-  return colors[archetype];
+  }[archetype];
 }

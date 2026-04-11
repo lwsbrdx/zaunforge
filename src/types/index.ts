@@ -161,6 +161,20 @@ export type Archetype =
 
 export type StatWeights = Record<keyof ParsedStats, number>;
 
+export interface ItemReason {
+  item: ParsedItem;
+  reasons: string[];
+}
+
+export interface BuildExplanation {
+  archetype: Archetype;
+  archetypeLabel: string;
+  summary: string;
+  profileTraits: string[];
+  itemReasons: ItemReason[];
+  bootReason: ItemReason | null;
+}
+
 export interface BuildResult {
   items: ParsedItem[];
   boot: ParsedItem | null;
@@ -168,6 +182,7 @@ export interface BuildResult {
   totalGold: number;
   score: number;
   archetype: Archetype;
+  explanation: BuildExplanation;
 }
 
 export interface AppState {
