@@ -94,7 +94,7 @@ function App() {
                 <div className="text-center space-y-2">
                   <div className="text-4xl opacity-30">&#9876;</div>
                   <p className="text-zaun-muted text-sm">
-                    Select a champion to generate<br />the optimal build
+                    Select a champion to see<br />the optimal build
                   </p>
                 </div>
               </div>

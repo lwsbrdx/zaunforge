@@ -41,26 +41,28 @@ interface ChampionProfile {
   trueDamageRatio: number;
   totalApRatio: number;
   totalAdRatio: number;
+  /** AP spellblade user (Fizz, Ekko, Ahri) */
   spellbladeUser: boolean;
+  /** AD auto-attack reset / spellblade user (Renekton W, Ambessa passive, Jax) */
+  spellbladeUserAD: boolean;
   multiHit: boolean;
   burstPattern: boolean;
   ultReliant: boolean;
   usesMana: boolean;
   baseMoveSpeed: number;
-  /** DoT-heavy champion (Brand, Malzahar) — burn items synergy */
   dotPattern: boolean;
-  /** On-hit champion (Yi, Kayle, Kog) — on-hit/AS items synergy */
   onHitSynergy: boolean;
-  /** Crit-scaling champion (ADCs, Yi Q) */
   critSynergy: boolean;
-  /** Life steal synergy (Samira R, ADCs) */
   lifeStealSynergy: boolean;
-  /** Heavy AoE kit (Brand, Samira R) */
   aoeHeavy: boolean;
-  /** Melee champion */
   isMelee: boolean;
-  /** Attack speed focused (Yi, ADCs) */
   attackSpeedFocused: boolean;
+  /** AP bruiser with sustained aura/DoT (Mordekaiser, Singed) — Riftmaker + Rylai's */
+  apSustained: boolean;
+  /** AP champion who auto-attacks (Mordekaiser passive, Kayle) — Nashor's synergy */
+  apAutoAttacker: boolean;
+  /** AD multi-hit on-hit (Renekton W 2-3 hits) — BotRK/on-hit amplified */
+  adMultiHitOnHit: boolean;
 }
 
 function buildChampionProfile(champion: DDChampion, _archetype: Archetype): ChampionProfile {
@@ -72,6 +74,7 @@ function buildChampionProfile(champion: DDChampion, _archetype: Archetype): Cham
   const isMage = tags.includes('Mage');
   const isFighter = tags.includes('Fighter');
   const isMarksman = tags.includes('Marksman');
+  const isTank = tags.includes('Tank');
   const usesMana = champion.partype === 'Mana';
   const isMelee = stats.attackrange <= 300;
 
@@ -81,26 +84,39 @@ function buildChampionProfile(champion: DDChampion, _archetype: Archetype): Cham
   // DoT: mages with support secondary (Brand), or low burst + high magic
   const dotPattern = isMage && (tags.includes('Support') || (info.magic >= 8 && !isAssassin && info.attack <= 3));
 
-  // On-hit: fighters with high attack rating, melee
+  // On-hit: melee fighters with high attack rating
   const onHitSynergy = isMelee && isFighter && info.attack >= 8;
 
   // Crit: marksmen, or fighters with very high attack
   const critSynergy = isMarksman || (info.attack >= 9 && !isAP);
 
-  // Life steal: marksmen, especially with high attack
+  // Life steal: marksmen, AD fighters
   const lifeStealSynergy = isMarksman || (isFighter && !isAP && info.attack >= 7);
 
-  // AoE: mages with support tag, marksman+assassin
+  // AoE: DoT mages, marksman+assassin combos
   const aoeHeavy = dotPattern || (isMarksman && isAssassin);
 
-  // AS focused: fighters with high attack, marksmen
+  // AS focused: on-hit fighters, marksmen
   const attackSpeedFocused = onHitSynergy || (isMarksman && info.attack >= 7);
+
+  // AP sustained: AP fighters/mages with sustained patterns (Mordekaiser, Singed, Rumble)
+  const apSustained = isAP && isFighter && isMelee;
+
+  // AP auto-attacker: AP melee fighters (Mordekaiser passive adds AP to autos)
+  const apAutoAttacker = isAP && isFighter && isMelee;
+
+  // AD multi-hit on-hit: melee fighters with high attack + tank secondary (Renekton W)
+  const adMultiHitOnHit = isMelee && isFighter && (isTank || isAssassin) && info.attack >= 8 && !isAP;
+
+  // AD spellblade: melee AD fighters with auto-resets
+  const spellbladeUserAD = isMelee && isFighter && !isAP && info.attack >= 8;
 
   return {
     trueDamageRatio: 0,
     totalApRatio,
     totalAdRatio,
     spellbladeUser: isAP && isAssassin,
+    spellbladeUserAD,
     multiHit: (isMage && info.magic >= 7) || dotPattern || onHitSynergy,
     burstPattern: isAssassin || (isMage && !dotPattern && info.magic >= 7),
     ultReliant: isAssassin || (isFighter && !isAP),
@@ -113,6 +129,9 @@ function buildChampionProfile(champion: DDChampion, _archetype: Archetype): Cham
     aoeHeavy,
     isMelee,
     attackSpeedFocused,
+    apSustained,
+    apAutoAttacker,
+    adMultiHitOnHit,
   };
 }
 
@@ -122,9 +141,13 @@ function generateProfileTraits(profile: ChampionProfile, archetype: Archetype): 
   const traits: string[] = [];
   if (profile.burstPattern) traits.push('Burst damage pattern');
   if (profile.dotPattern) traits.push('DoT / sustained damage');
+  if (profile.apSustained) traits.push('AP sustained damage');
+  if (profile.apAutoAttacker) traits.push('AP auto-attacker');
   if (profile.onHitSynergy) traits.push('On-hit synergy');
+  if (profile.adMultiHitOnHit) traits.push('Multi-hit on-hit (ability)');
   if (profile.critSynergy) traits.push('Critical strike synergy');
   if (profile.lifeStealSynergy) traits.push('Life steal synergy');
+  if (profile.spellbladeUserAD) traits.push('AD Spellblade user');
   if (profile.attackSpeedFocused) traits.push('Attack speed focused');
   if (profile.spellbladeUser) traits.push('Spellblade user');
   if (profile.multiHit) traits.push('Multi-hit kit');
@@ -141,19 +164,28 @@ function generateSummary(champion: DDChampion, archetype: Archetype, profile: Ch
   const name = champion.name;
   const label = getArchetypeLabel(archetype);
 
+  if (profile.apSustained) {
+    return `${name} is a sustained ${label} with continuous magic damage aura/DoT. Build prioritizes AP, omnivamp for sustain, HP for durability, and items that synergize with prolonged combat (Riftmaker, Rylai's). ${!profile.usesMana ? 'No mana needed — pure AP/HP itemization.' : ''}`;
+  }
   if (profile.dotPattern) {
     return `${name} is a ${label} with sustained DoT and %max HP damage. Build prioritizes burn item synergy, magic penetration (all damage is magic), and ability haste for more spell rotations.`;
   }
-  if (profile.onHitSynergy) {
-    return `${name} is an auto-attack ${label} with on-hit synergies. Build maximizes attack speed and on-hit damage, with AD for ability scaling. ${profile.trueDamageRatio > 0 ? 'True damage in kit reduces armor penetration value.' : ''}`;
+  if (profile.adMultiHitOnHit) {
+    return `${name} is a ${label} with abilities that apply on-hit effects multiple times. Build prioritizes AD, on-hit items (BotRK), and bruiser survivability. ${!profile.usesMana ? 'No mana resource — itemization fully focused on combat stats.' : ''}`;
   }
-  if (profile.critSynergy && profile.lifeStealSynergy) {
+  if (profile.onHitSynergy && !profile.critSynergy) {
+    return `${name} is an auto-attack ${label} with on-hit synergies. Build maximizes attack speed and on-hit damage, with AD for ability scaling. ${profile.trueDamageRatio > 0 ? 'True damage in kit reduces armor penetration value.' : ''} ${!profile.usesMana ? 'No mana needed.' : ''}`;
+  }
+  if (profile.critSynergy && profile.lifeStealSynergy && !profile.onHitSynergy) {
     return `${name} is a ${label} who scales extremely with crit and life steal. Build stacks AD, crit chance, and life steal for maximum DPS and sustain. ${profile.aoeHeavy ? 'AoE abilities multiply life steal effectiveness in teamfights.' : ''}`;
+  }
+  if (profile.spellbladeUserAD && profile.onHitSynergy) {
+    return `${name} is a ${label} with auto-attack resets and high AD ratios (~${profile.totalAdRatio.toFixed(1)}x). Build stacks AD, on-hit, and bruiser items. ${!profile.usesMana ? 'No mana resource — pure combat stats.' : ''}`;
   }
   if (profile.burstPattern && archetype.includes('ap')) {
     return `${name} is a burst ${label} with high AP ratios (~${profile.totalApRatio.toFixed(1)}x on full combo). Build maximizes raw AP, magic penetration, and ability haste. ${profile.trueDamageRatio > 0 ? `~${Math.round(profile.trueDamageRatio * 100)}% of damage is true damage, slightly reducing magic pen value.` : ''}`;
   }
-  return `${name} is classified as ${label}. Build optimizes for the most gold-efficient stats matching this playstyle.`;
+  return `${name} is classified as ${label}. Build optimizes for the most gold-efficient stats matching this playstyle. ${!profile.usesMana ? 'No mana needed.' : ''}`;
 }
 
 // ─── Item synergy detection + reasons ─────────────────────────────
@@ -221,7 +253,11 @@ function computeSynergyWithReasons(
 
   // ── Rylai's Crystal Scepter: slow on abilities ──
   if (name.includes("Rylai")) {
-    if (profile.dotPattern) {
+    if (profile.apSustained) {
+      multiplier *= 1.5;
+      reasons.push('Damage aura constantly reapplies 30% slow — enemies can\'t escape melee range');
+      reasons.push('400 HP adds to durability and Riftmaker AP conversion');
+    } else if (profile.dotPattern) {
       multiplier *= 1.6;
       reasons.push('DoT constantly reapplies 30% slow — permaslow on burning targets');
     } else if (profile.burstPattern) {
@@ -254,13 +290,35 @@ function computeSynergyWithReasons(
     }
   }
 
-  // ── Spellblade items (Lich Bane, Dusk and Dawn) ──
+  // ── AP Spellblade items (Lich Bane, Dusk and Dawn) ──
   if (name.includes("Lich Bane") || name.includes("Dusk and Dawn")) {
     if (profile.spellbladeUser) {
       multiplier *= 1.3;
       reasons.push('Auto-weaving between spells procs Spellblade efficiently');
+    } else if (profile.apAutoAttacker) {
+      multiplier *= 0.9;
     } else {
       multiplier *= 0.4;
+    }
+  }
+
+  // ── Trinity Force: AD spellblade for auto-reset fighters ──
+  if (name.includes("Trinity Force")) {
+    if (profile.spellbladeUserAD) {
+      multiplier *= 1.5;
+      reasons.push('Auto-attack resets proc Spellblade constantly — AD + AS + AH perfect trifecta');
+    } else if (profile.onHitSynergy) {
+      multiplier *= 1.1;
+    } else {
+      multiplier *= 0.5;
+    }
+  }
+
+  // ── Spear of Shojin: ability haste for fighters ──
+  if (name.includes("Spear of Shojin") || name.includes("Shojin")) {
+    if (profile.isMelee && !archetype.includes('ap') && profile.spellbladeUserAD) {
+      multiplier *= 1.3;
+      reasons.push('AD + AH + ability-focused passive — ideal for fighters with short CD rotations');
     }
   }
 
@@ -294,7 +352,10 @@ function computeSynergyWithReasons(
 
   // ── Nashor's Tooth: on-hit AP ──
   if (name.includes("Nashor")) {
-    if (profile.onHitSynergy) {
+    if (profile.apAutoAttacker) {
+      multiplier *= 1.5;
+      reasons.push('AP on-hit + AS — passive adds AP ratio to every auto, Nashor\'s doubles down');
+    } else if (profile.onHitSynergy) {
       multiplier *= 1.1;
       reasons.push('On-hit magic damage synergizes with auto-attack focus');
     } else if (profile.burstPattern) {
@@ -304,7 +365,10 @@ function computeSynergyWithReasons(
 
   // ── Rod of Ages: scaling, not for burst ──
   if (name.includes("Rod of Ages")) {
-    if (profile.burstPattern) {
+    if (profile.apSustained) {
+      multiplier *= 1.2;
+      reasons.push('AP + HP + Mana scaling — Eternity passive gives sustain from damage dealt');
+    } else if (profile.burstPattern) {
       multiplier *= 0.4;
     } else if (profile.dotPattern) {
       multiplier *= 0.9;
@@ -313,7 +377,11 @@ function computeSynergyWithReasons(
 
   // ── Riftmaker: sustained omnivamp ──
   if (name.includes("Riftmaker")) {
-    if (profile.dotPattern) {
+    if (profile.apSustained) {
+      multiplier *= 1.7;
+      reasons.push('Sustained magic damage aura ramps omnivamp to max — signature item for AP bruisers');
+      reasons.push('+2% bonus HP as AP rewards HP stacking in build');
+    } else if (profile.dotPattern) {
       multiplier *= 1.1;
       reasons.push('Sustained combat ramps omnivamp with DoT');
     } else if (profile.burstPattern) {
@@ -338,9 +406,33 @@ function computeSynergyWithReasons(
 
   // ── Cosmic Drive: sustained MS + AH ──
   if (name.includes("Cosmic Drive")) {
-    if (profile.dotPattern) {
+    if (profile.apSustained) {
+      multiplier *= 1.3;
+      reasons.push('Sustained aura damage keeps Spelldance MS always active — kite and chase in melee');
+      reasons.push('350 HP + 25 AH for durability and ability rotations');
+    } else if (profile.dotPattern) {
       multiplier *= 1.15;
       reasons.push('Sustained damage keeps Spelldance MS active, 25 AH for spell rotations');
+    }
+  }
+
+  // ── Black Cleaver: AD + HP + armor shred ──
+  if (name.includes("Black Cleaver")) {
+    if (profile.spellbladeUserAD || profile.adMultiHitOnHit) {
+      multiplier *= 1.3;
+      reasons.push('AD + HP + AH core stats — armor shred stacks fast with multi-hit abilities');
+    } else if (profile.isMelee && !archetype.includes('ap')) {
+      multiplier *= 1.1;
+    } else {
+      multiplier *= 0.5;
+    }
+  }
+
+  // ── Sundered Sky: AD fighter sustain ──
+  if (name.includes("Sundered Sky")) {
+    if (profile.isMelee && !archetype.includes('ap') && profile.spellbladeUserAD) {
+      multiplier *= 1.3;
+      reasons.push('Heal on first hit per champion — synergizes with ability engage + auto reset');
     }
   }
 
@@ -402,7 +494,10 @@ function computeSynergyWithReasons(
 
   // ── Blade of the Ruined King: on-hit %HP ──
   if (name.includes("Blade of the Ruined King")) {
-    if (profile.onHitSynergy) {
+    if (profile.adMultiHitOnHit) {
+      multiplier *= 1.8;
+      reasons.push('Ability applies on-hit multiple times — %current HP proc is amplified 2-3x per cast');
+    } else if (profile.onHitSynergy) {
       multiplier *= 1.6;
       reasons.push('On-hit %current HP synergizes with high attack speed and on-hit application');
     } else if (profile.attackSpeedFocused) {
