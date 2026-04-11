@@ -1,4 +1,4 @@
-import type { DDChampionList, DDItemList, DDItem, ParsedItem, ParsedStats } from '../types';
+import type { DDChampionList, DDChampionDetail, DDItemList, DDItem, ParsedItem, ParsedStats } from '../types';
 
 const BASE_URL = 'https://ddragon.leagueoflegends.com';
 
@@ -11,6 +11,20 @@ export async function getLatestVersion(): Promise<string> {
 export async function getChampions(version: string): Promise<DDChampionList> {
   const res = await fetch(`${BASE_URL}/cdn/${version}/data/en_US/champion.json`);
   return res.json();
+}
+
+export async function getChampionDetail(version: string, championId: string): Promise<DDChampionDetail> {
+  const res = await fetch(`${BASE_URL}/cdn/${version}/data/en_US/champion/${championId}.json`);
+  const data = await res.json();
+  return data.data[championId] as DDChampionDetail;
+}
+
+export function getPassiveImageUrl(version: string, imageFull: string): string {
+  return `${BASE_URL}/cdn/${version}/img/passive/${imageFull}`;
+}
+
+export function getSpellImageUrl(version: string, imageFull: string): string {
+  return `${BASE_URL}/cdn/${version}/img/spell/${imageFull}`;
 }
 
 export async function getItems(version: string): Promise<DDItemList> {

@@ -1,6 +1,7 @@
-import { useState, useMemo } from 'react';
-import type { DDChampion, BuildResult } from './types';
+import { useState, useMemo, useEffect } from 'react';
+import type { DDChampion, DDChampionDetail, BuildResult } from './types';
 import { useDataDragon } from './hooks/useDataDragon';
+import { getChampionDetail } from './api/datadragon';
 import { optimizeBuild } from './engine/optimizer';
 import { Header } from './components/Header';
 import { ChampionGrid } from './components/ChampionGrid';
@@ -10,6 +11,30 @@ import { LoadingScreen } from './components/LoadingScreen';
 function App() {
   const { version, champions, items, loading, error } = useDataDragon();
   const [selectedChampion, setSelectedChampion] = useState<DDChampion | null>(null);
+  const [championDetail, setChampionDetail] = useState<DDChampionDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  // Fetch champion detail when selection changes
+  useEffect(() => {
+    if (!selectedChampion || !version) {
+      setChampionDetail(null);
+      return;
+    }
+
+    let cancelled = false;
+    setDetailLoading(true);
+
+    getChampionDetail(version, selectedChampion.id).then(detail => {
+      if (!cancelled) {
+        setChampionDetail(detail);
+        setDetailLoading(false);
+      }
+    }).catch(() => {
+      if (!cancelled) setDetailLoading(false);
+    });
+
+    return () => { cancelled = true; };
+  }, [selectedChampion, version]);
 
   const build: BuildResult | null = useMemo(() => {
     if (!selectedChampion || items.length === 0) return null;
@@ -61,6 +86,8 @@ function App() {
                 champion={selectedChampion}
                 build={build}
                 version={version}
+                championDetail={championDetail}
+                detailLoading={detailLoading}
               />
             ) : (
               <div className="flex items-center justify-center h-64 bg-zaun-surface border border-zaun-border rounded-2xl">

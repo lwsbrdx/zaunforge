@@ -1,15 +1,18 @@
-import type { BuildResult, DDChampion, ParsedStats } from '../types';
+import type { BuildResult, DDChampion, DDChampionDetail, ParsedStats } from '../types';
 import { getArchetypeLabel, getArchetypeColor } from '../engine/optimizer';
 import { ItemCard } from './ItemCard';
 import { BuildExplanationPanel } from './BuildExplanation';
+import { AbilitiesPanel } from './AbilitiesPanel';
 
 interface BuildDisplayProps {
   champion: DDChampion;
   build: BuildResult;
   version: string;
+  championDetail: DDChampionDetail | null;
+  detailLoading: boolean;
 }
 
-export function BuildDisplay({ champion, build, version }: BuildDisplayProps) {
+export function BuildDisplay({ champion, build, version, championDetail, detailLoading }: BuildDisplayProps) {
   const champImgUrl = `https://ddragon.leagueoflegends.com/cdn/${version}/img/champion/${champion.id}.png`;
   const archetypeColor = getArchetypeColor(build.archetype);
 
@@ -41,6 +44,16 @@ export function BuildDisplay({ champion, build, version }: BuildDisplayProps) {
           </div>
         </div>
       </div>
+
+      {/* Abilities */}
+      {detailLoading && (
+        <div className="bg-zaun-surface border border-zaun-border rounded-2xl p-6 text-center">
+          <p className="text-xs text-zaun-muted">Loading abilities...</p>
+        </div>
+      )}
+      {championDetail && !detailLoading && (
+        <AbilitiesPanel detail={championDetail} version={version} />
+      )}
 
       {/* Build explanation */}
       <BuildExplanationPanel explanation={build.explanation} />

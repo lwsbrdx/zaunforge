@@ -47,6 +47,39 @@ export interface ChampionStats {
 
 export type ChampionTag = 'Fighter' | 'Mage' | 'Assassin' | 'Marksman' | 'Tank' | 'Support';
 
+// Champion detail (individual endpoint)
+
+export interface DDChampionDetail {
+  id: string;
+  name: string;
+  title: string;
+  lore: string;
+  passive: DDPassive;
+  spells: DDSpell[];
+}
+
+export interface DDPassive {
+  name: string;
+  description: string;
+  image: DDImage;
+}
+
+export interface DDSpell {
+  id: string;
+  name: string;
+  description: string;
+  tooltip: string;
+  maxrank: number;
+  cooldown: number[];
+  cooldownBurn: string;
+  cost: number[];
+  costBurn: string;
+  costType: string;
+  range: number[];
+  rangeBurn: string;
+  image: DDImage;
+}
+
 export interface DDItemList {
   version: string;
   data: Record<string, DDItem>;
