@@ -176,6 +176,7 @@ export interface ParsedItem {
   group?: string;
   imageUrl: string;
   from?: string[];
+  into?: string[];
   requiredChampion?: string;
 }
 

@@ -668,6 +668,8 @@ export function optimizeBuild(
   // Filter valid completed items
   const completedItems = allItems.filter(item => {
     if (item.depth < 2) return false;
+    // Exclude component items that build into something else (e.g. Lost Chapter → Luden's)
+    if (item.into && item.into.length > 0 && !item.isBoot) return false;
     if (item.requiredChampion && item.requiredChampion !== champion.name) return false;
     if (item.tags.includes('Jungle') && !['tank', 'ad_bruiser', 'ap_bruiser'].includes(archetype)) return false;
     return true;

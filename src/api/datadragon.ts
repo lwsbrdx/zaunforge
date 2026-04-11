@@ -157,6 +157,7 @@ export function parseItem(id: string, raw: DDItem, version: string): ParsedItem 
     group: raw.group,
     imageUrl: `${BASE_URL}/cdn/${version}/img/item/${raw.image.full}`,
     from: raw.from,
+    into: raw.into,
     requiredChampion: raw.requiredChampion || undefined,
   };
 }
