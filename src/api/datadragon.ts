@@ -141,7 +141,7 @@ export function parseItem(id: string, raw: DDItem, version: string): ParsedItem 
     depth: raw.depth ?? 1,
     isBoot,
     group: raw.group,
-    imageUrl: getItemImageUrl(version, raw.image.full),
+    imageUrl: `${BASE_URL}/cdn/${version}/img/item/${raw.image.full}`,
     from: raw.from,
     requiredChampion: raw.requiredChampion || undefined,
   };

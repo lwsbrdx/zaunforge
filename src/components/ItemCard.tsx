@@ -1,4 +1,6 @@
+import { useState, useCallback } from 'react';
 import type { ParsedItem } from '../types';
+import { ItemTooltip } from './ItemTooltip';
 
 interface ItemCardProps {
   item: ParsedItem;
@@ -8,9 +10,29 @@ interface ItemCardProps {
 
 export function ItemCard({ item, index, showStats = false }: ItemCardProps) {
   const nonZeroStats = Object.entries(item.stats).filter(([, v]) => v > 0);
+  const [hover, setHover] = useState(false);
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+  const handleMouseEnter = useCallback((e: React.MouseEvent) => {
+    setMousePos({ x: e.clientX, y: e.clientY });
+    setHover(true);
+  }, []);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    setMousePos({ x: e.clientX, y: e.clientY });
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    setHover(false);
+  }, []);
 
   return (
-    <div className="group relative bg-zaun-card border border-zaun-border rounded-xl p-3 hover:border-zaun-glow/50 transition-all duration-200">
+    <div
+      className="group relative bg-zaun-card border border-zaun-border rounded-xl p-3 hover:border-zaun-glow/50 transition-all duration-200 cursor-pointer"
+      onMouseEnter={handleMouseEnter}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
+    >
       <div className="flex items-center gap-3">
         {index !== undefined && (
           <span className="text-xs text-zaun-muted font-mono w-4">{index + 1}</span>
@@ -42,6 +64,8 @@ export function ItemCard({ item, index, showStats = false }: ItemCardProps) {
           ))}
         </div>
       )}
+
+      {hover && <ItemTooltip item={item} position={mousePos} />}
     </div>
   );
 }
