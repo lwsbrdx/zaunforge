@@ -97,23 +97,26 @@ export function BuildDisplay({ champion, build, version, championDetail, detailL
         <BuildExplanationPanel explanation={build.explanation} />
       </div>
 
-      {/* Full-detail item list (with stats) */}
-      <div>
-        <h3 className="text-lg font-semibold text-zaun-text mb-3">Detailed Breakdown</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {build.boot && (
-            <ItemCard item={build.boot} showStats />
-          )}
-          {build.items.map((item, i) => (
-            <ItemCard key={item.id} item={item} index={i} showStats />
-          ))}
+      {/* Detailed Breakdown + Total Stats side-by-side */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Left: Full-detail item list */}
+        <div>
+          <h3 className="text-lg font-semibold text-zaun-text mb-3">Detailed Breakdown</h3>
+          <div className="grid grid-cols-1 gap-3">
+            {build.boot && (
+              <ItemCard item={build.boot} showStats />
+            )}
+            {build.items.map((item, i) => (
+              <ItemCard key={item.id} item={item} index={i} showStats />
+            ))}
+          </div>
         </div>
-      </div>
 
-      {/* Total stats */}
-      <div className="bg-zaun-surface border border-zaun-border rounded-2xl p-6">
-        <h3 className="text-lg font-semibold text-zaun-text mb-4">Total Build Stats</h3>
-        <StatsGrid stats={build.totalStats} />
+        {/* Right: Total stats */}
+        <div className="bg-zaun-surface border border-zaun-border rounded-2xl p-6 h-fit">
+          <h3 className="text-lg font-semibold text-zaun-text mb-4">Total Build Stats</h3>
+          <StatsGrid stats={build.totalStats} />
+        </div>
       </div>
     </div>
   );
