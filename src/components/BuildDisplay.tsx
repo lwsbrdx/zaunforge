@@ -3,6 +3,7 @@ import { getArchetypeLabel, getArchetypeColor } from '../engine/optimizer';
 import { ItemCard } from './ItemCard';
 import { BuildExplanationPanel } from './BuildExplanation';
 import { AbilitiesPanel } from './AbilitiesPanel';
+import { RunesPanel } from './RunesPanel';
 
 interface BuildDisplayProps {
   champion: DDChampion;
@@ -54,6 +55,9 @@ export function BuildDisplay({ champion, build, version, championDetail, detailL
       {championDetail && !detailLoading && (
         <AbilitiesPanel detail={championDetail} version={version} />
       )}
+
+      {/* Runes */}
+      <RunesPanel runes={build.explanation.runes} />
 
       {/* Build explanation */}
       <BuildExplanationPanel explanation={build.explanation} />

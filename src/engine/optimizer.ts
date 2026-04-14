@@ -11,6 +11,7 @@ import type {
   EnemyCompAnalysis,
 } from '../types';
 import { generateCounterStrategy } from './compAnalysis';
+import { recommendRunes } from './runes';
 
 // ─── Archetype detection ───────────────────────────────────────────
 
@@ -821,6 +822,142 @@ function applyCounterItemization(item: ParsedItem, comp: EnemyCompAnalysis): Syn
   return { multiplier, reasons };
 }
 
+// ─── Defensive slot forcing ──────────────────────────────────────────
+//
+// The raw archetype weights favor damage way more than resistances.
+// Against a threatening comp, a greedy pass would never pick MR/Armor
+// items because damage stats always outscore them. This layer progressively
+// forces at least one matching defensive item into the build.
+
+interface DefenseState {
+  armor: number;
+  magicResist: number;
+  health: number;
+  hasArmorItem: boolean;
+  hasMRItem: boolean;
+  hasDefensiveItem: boolean;
+}
+
+function computeDefenseState(selected: ParsedItem[]): DefenseState {
+  const armor = selected.reduce((s, i) => s + i.stats.armor, 0);
+  const magicResist = selected.reduce((s, i) => s + i.stats.magicResist, 0);
+  const health = selected.reduce((s, i) => s + i.stats.health, 0);
+  const hasArmorItem = selected.some(i => i.stats.armor >= 25);
+  const hasMRItem = selected.some(i => i.stats.magicResist >= 25);
+  return {
+    armor, magicResist, health,
+    hasArmorItem, hasMRItem,
+    hasDefensiveItem: hasArmorItem || hasMRItem,
+  };
+}
+
+interface DefenseForcing {
+  wantArmor: boolean;
+  wantMR: boolean;
+  wantHP: boolean;
+  urgency: number; // 0..3 — progressive
+  reason: string;
+}
+
+/**
+ * Returns what defensive stat we need right now based on comp threat,
+ * what we already have, and how late we are in the build.
+ *
+ * Urgency grows as slots pass without a defensive item.
+ */
+function defenseForcing(
+  comp: EnemyCompAnalysis | null,
+  defense: DefenseState,
+  slot: number,
+  archetype: Archetype,
+): DefenseForcing {
+  const empty: DefenseForcing = { wantArmor: false, wantMR: false, wantHP: false, urgency: 0, reason: '' };
+
+  // Pure squishy archetypes (AD carry, ap_mage, ap_assassin, ad_assassin, enchanter)
+  // don't need forced defense — they rely on range/positioning
+  const isSquishyArchetype = ['ad_carry', 'ap_mage', 'ap_assassin', 'ad_assassin', 'enchanter'].includes(archetype);
+  if (isSquishyArchetype) return empty;
+
+  if (!comp || slot < 2) return empty;
+
+  const adThreat = comp.adThreat;
+  const apThreat = comp.apThreat;
+  const primaryIsAP = apThreat > adThreat;
+
+  // How threatening is the primary damage type?
+  const primaryThreat = Math.max(adThreat, apThreat);
+  if (primaryThreat < 0.35) return empty;
+
+  // What do we still need?
+  const wantArmor = !defense.hasArmorItem && adThreat > 0.35;
+  const wantMR = !defense.hasMRItem && apThreat > 0.35;
+  // For mixed comps, we want BOTH resists — at least the dominant one
+  const mixedBothMissing = comp.mixedDamage && !defense.hasDefensiveItem;
+
+  if (!wantArmor && !wantMR && !mixedBothMissing) return empty;
+
+  // Urgency grows with slot number
+  // slot 2 (3rd item) = mild nudge
+  // slot 3 (4th item) = strong push
+  // slot 4 (5th item) = force it — last chance
+  let urgency = 0;
+  if (slot === 2) urgency = 1;
+  if (slot === 3) urgency = 2;
+  if (slot === 4) urgency = 3;
+
+  // If comp is extremely lopsided (>0.7 threat), bump urgency
+  if (primaryThreat > 0.7) urgency = Math.min(3, urgency + 1);
+
+  const reason = primaryIsAP
+    ? `Slot ${slot + 1}: no MR yet vs ${Math.round(apThreat * 100)}% enemy magic — forcing anti-magic item`
+    : `Slot ${slot + 1}: no armor yet vs ${Math.round(adThreat * 100)}% enemy physical — forcing anti-physical item`;
+
+  return {
+    wantArmor: wantArmor || mixedBothMissing,
+    wantMR: wantMR || mixedBothMissing,
+    wantHP: urgency >= 2, // Also reward HP stacking late
+    urgency,
+    reason,
+  };
+}
+
+/**
+ * Apply the forcing boost to this item. Returns a multiplier.
+ * If urgency is high, pure offensive items get penalized too.
+ */
+function applyDefenseForcing(item: ParsedItem, forcing: DefenseForcing): { multiplier: number; reason: string | null } {
+  if (forcing.urgency === 0) return { multiplier: 1, reason: null };
+
+  const stats = item.stats;
+  const hasArmor = stats.armor >= 25;
+  const hasMR = stats.magicResist >= 25;
+  const hasHP = stats.health >= 300;
+  const isDefensive = hasArmor || hasMR;
+  const isPureOffense = !hasArmor && !hasMR && stats.health < 200;
+
+  // Boost matching defensive items
+  let boost = 1;
+  let reason: string | null = null;
+
+  if (forcing.wantMR && hasMR) {
+    boost = [1, 1.8, 3.0, 5.0][forcing.urgency];
+    reason = forcing.reason;
+  } else if (forcing.wantArmor && hasArmor) {
+    boost = [1, 1.8, 3.0, 5.0][forcing.urgency];
+    reason = forcing.reason;
+  } else if (forcing.wantHP && hasHP && !isDefensive) {
+    // HP-only item as fallback when resist items aren't available
+    boost = [1, 1.1, 1.3, 1.5][forcing.urgency];
+  }
+
+  // Penalize pure offense at high urgency
+  if (isPureOffense && forcing.urgency >= 2) {
+    boost *= [1, 1, 0.7, 0.4][forcing.urgency];
+  }
+
+  return { multiplier: boost, reason };
+}
+
 const STAT_LABELS: Record<keyof ParsedStats, string> = {
   attackDamage: 'AD', abilityPower: 'AP', health: 'HP', mana: 'Mana',
   armor: 'Armor', magicResist: 'MR', attackSpeed: 'Attack Speed',
@@ -957,6 +1094,11 @@ export function optimizeBuild(
     let bestItem: ParsedItem | null = null;
     let bestScore = -Infinity;
     let bestReasons: string[] = [];
+    let bestDefensiveBoostReason: string | null = null;
+
+    // Check if we need to force a defensive pick
+    const defense = computeDefenseState(selectedItems);
+    const forcing = defenseForcing(comp, defense, slot, archetype);
 
     for (const item of nonBoots) {
       if (usedIds.has(item.id)) continue;
@@ -964,18 +1106,22 @@ export function optimizeBuild(
 
       const base = baseScore(item, weights);
       const synergy = computeSynergyWithReasons(item, profile, archetype, selectedItems, comp);
-      const score = base * synergy.multiplier;
+      const defenseBoost = applyDefenseForcing(item, forcing);
+      const score = base * synergy.multiplier * defenseBoost.multiplier;
 
       if (score > bestScore) {
         bestScore = score;
         bestItem = item;
         bestReasons = synergy.reasons;
+        bestDefensiveBoostReason = defenseBoost.reason;
       }
     }
 
     if (bestItem) {
       selectedItems.push(bestItem);
-      itemReasons.push({ item: bestItem, reasons: bestReasons });
+      const reasons = bestReasons.slice();
+      if (bestDefensiveBoostReason) reasons.unshift(bestDefensiveBoostReason);
+      itemReasons.push({ item: bestItem, reasons });
       usedIds.add(bestItem.id);
       if (bestItem.group) usedGroups.add(bestItem.group);
     }
@@ -1021,6 +1167,7 @@ export function optimizeBuild(
     bootReason: bootReasonData,
     compAnalysis: comp,
     counterStrategy: comp ? generateCounterStrategy(comp) : [],
+    runes: recommendRunes(champion, archetype, comp),
   };
 
   return {

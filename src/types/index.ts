@@ -209,6 +209,33 @@ export interface BuildExplanation {
   bootReason: ItemReason | null;
   compAnalysis: EnemyCompAnalysis | null;
   counterStrategy: string[];
+  runes: RuneRecommendation;
+}
+
+// ─── Runes ───────────────────────────────────────────────────────────
+
+export type RuneTree = 'Precision' | 'Domination' | 'Sorcery' | 'Resolve' | 'Inspiration';
+
+export interface RuneRecommendation {
+  keystone: {
+    name: string;
+    tree: RuneTree;
+    reasoning: string;
+  };
+  primary: {
+    tree: RuneTree;
+    runes: string[]; // 3 minor runes from primary tree
+  };
+  secondary: {
+    tree: RuneTree;
+    runes: string[]; // 2 minor runes from secondary tree
+  };
+  shards: {
+    offense: string;
+    flex: string;
+    defense: string;
+  };
+  summary: string;
 }
 
 export interface BuildResult {

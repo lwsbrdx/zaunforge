@@ -225,13 +225,13 @@ function ChampionSlot({ champion, version, side, onClick, onClear }: ChampionSlo
 
   const imgUrl = `https://ddragon.leagueoflegends.com/cdn/${version}/img/champion/${champion.id}.png`;
   return (
-    <div className="relative group">
+    <div className="relative group w-16 h-16">
       <button
         onClick={onClick}
-        className={`w-16 h-16 rounded-xl overflow-hidden border-2 ${solidBorder} transition-all duration-150 hover:scale-105 block`}
+        className={`relative w-16 h-16 p-0 rounded-xl overflow-hidden border-2 ${solidBorder} transition-all duration-150 hover:scale-105 block`}
         title={`${champion.name} — click to change`}
       >
-        <img src={imgUrl} alt={champion.name} className="w-full h-full object-cover" />
+        <img src={imgUrl} alt={champion.name} className="block w-full h-full object-cover" />
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent px-1 py-0.5">
           <span className="text-[9px] font-medium leading-none block truncate">
             {champion.name}
