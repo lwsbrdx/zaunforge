@@ -1,4 +1,4 @@
-import type { DDChampionList, DDChampionDetail, DDItemList, DDItem, ParsedItem, ParsedStats } from '../types';
+import type { DDChampionList, DDChampionDetail, DDItemList, DDItem, ParsedItem, ParsedStats, DDRunesData, RuneIconLookup, RuneTree } from '../types';
 
 const BASE_URL = 'https://ddragon.leagueoflegends.com';
 
@@ -30,6 +30,54 @@ export function getSpellImageUrl(version: string, imageFull: string): string {
 export async function getItems(version: string): Promise<DDItemList> {
   const res = await fetch(`${BASE_URL}/cdn/${version}/data/en_US/item.json`);
   return res.json();
+}
+
+export async function getRunes(version: string): Promise<DDRunesData> {
+  const res = await fetch(`${BASE_URL}/cdn/${version}/data/en_US/runesReforged.json`);
+  return res.json();
+}
+
+export function getPerkImageUrl(icon: string): string {
+  // Data Dragon perk images live under /cdn/img/ (not version-scoped)
+  return `${BASE_URL}/cdn/img/${icon}`;
+}
+
+// Stat shard icons live at a fixed Data Dragon path (not listed in runesReforged.json).
+// Keys match the names emitted by engine/runes.ts pickShards().
+const SHARD_ICON_MAP: Record<string, string> = {
+  'Adaptive Force': `${BASE_URL}/cdn/img/perk-images/StatMods/StatModsAdaptiveForceIcon.png`,
+  'Attack Speed':   `${BASE_URL}/cdn/img/perk-images/StatMods/StatModsAttackSpeedIcon.png`,
+  'Ability Haste':  `${BASE_URL}/cdn/img/perk-images/StatMods/StatModsCDRScalingIcon.png`,
+  'Move Speed':     `${BASE_URL}/cdn/img/perk-images/StatMods/StatModsMovementSpeedIcon.png`,
+  'Health':         `${BASE_URL}/cdn/img/perk-images/StatMods/StatModsHealthScalingIcon.png`,
+  'Health (Flat)':  `${BASE_URL}/cdn/img/perk-images/StatMods/StatModsHealthPlusIcon.png`,
+  'Tenacity':       `${BASE_URL}/cdn/img/perk-images/StatMods/StatModsTenacityIcon.png`,
+  'Armor':          `${BASE_URL}/cdn/img/perk-images/StatMods/StatModsArmorIcon.png`,
+  'Magic Resist':   `${BASE_URL}/cdn/img/perk-images/StatMods/StatModsMagicResIcon.png`,
+};
+
+export function buildRuneIconLookup(data: DDRunesData): RuneIconLookup {
+  const runeByName: RuneIconLookup['runeByName'] = {};
+  const treeByKey = {} as RuneIconLookup['treeByKey'];
+
+  for (const tree of data) {
+    const treeKey = tree.key as RuneTree;
+    treeByKey[treeKey] = { icon: getPerkImageUrl(tree.icon), id: tree.id };
+    for (const slot of tree.slots) {
+      for (const rune of slot.runes) {
+        const entry = { icon: getPerkImageUrl(rune.icon), id: rune.id, tree: treeKey };
+        runeByName[rune.name] = entry;
+        // Also key by `key` since Data Dragon occasionally differs (e.g. "PressTheAttack" vs "Press the Attack")
+        runeByName[rune.key] = entry;
+      }
+    }
+  }
+
+  return {
+    runeByName,
+    treeByKey,
+    shardByName: { ...SHARD_ICON_MAP },
+  };
 }
 
 export function getChampionImageUrl(version: string, championId: string): string {

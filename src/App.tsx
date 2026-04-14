@@ -16,7 +16,7 @@ type PickerTarget =
   | { type: 'enemy'; index: number };
 
 function App() {
-  const { version, champions, items, loading, error } = useDataDragon();
+  const { version, champions, items, runeLookup, loading, error } = useDataDragon();
   const [selectedChampion, setSelectedChampion] = useState<DDChampion | null>(null);
   const [enemyTeam, setEnemyTeam] = useState<(DDChampion | null)[]>(EMPTY_ENEMIES);
   const [championDetail, setChampionDetail] = useState<DDChampionDetail | null>(null);
@@ -172,6 +172,8 @@ function App() {
             version={version}
             championDetail={championDetail}
             detailLoading={detailLoading}
+            runeLookup={runeLookup}
+            items={items}
           />
         ) : (
           <div className="flex items-center justify-center h-64 bg-zaun-surface border border-zaun-border rounded-2xl">

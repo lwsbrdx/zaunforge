@@ -1,11 +1,20 @@
 import { useState, useEffect } from 'react';
-import type { DDChampion, ParsedItem } from '../types';
-import { getLatestVersion, getChampions, getItems, getChampionImageUrl, parseAllItems } from '../api/datadragon';
+import type { DDChampion, ParsedItem, RuneIconLookup } from '../types';
+import {
+  getLatestVersion,
+  getChampions,
+  getItems,
+  getRunes,
+  getChampionImageUrl,
+  parseAllItems,
+  buildRuneIconLookup,
+} from '../api/datadragon';
 
 interface DataDragonState {
   version: string | null;
   champions: DDChampion[];
   items: ParsedItem[];
+  runeLookup: RuneIconLookup | null;
   loading: boolean;
   error: string | null;
 }
@@ -15,6 +24,7 @@ export function useDataDragon() {
     version: null,
     champions: [],
     items: [],
+    runeLookup: null,
     loading: true,
     error: null,
   });
@@ -27,9 +37,10 @@ export function useDataDragon() {
         const version = await getLatestVersion();
         if (cancelled) return;
 
-        const [champData, itemData] = await Promise.all([
+        const [champData, itemData, runesData] = await Promise.all([
           getChampions(version),
           getItems(version),
+          getRunes(version),
         ]);
         if (cancelled) return;
 
@@ -45,11 +56,13 @@ export function useDataDragon() {
         champions.sort((a, b) => a.name.localeCompare(b.name));
 
         const items = parseAllItems(itemData, version);
+        const runeLookup = buildRuneIconLookup(runesData);
 
         setState({
           version,
           champions,
           items,
+          runeLookup,
           loading: false,
           error: null,
         });

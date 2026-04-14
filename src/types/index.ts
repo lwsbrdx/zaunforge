@@ -238,6 +238,48 @@ export interface RuneRecommendation {
   summary: string;
 }
 
+// Data Dragon raw runes structure (from runesReforged.json)
+
+export interface DDRune {
+  id: number;
+  key: string;
+  icon: string; // "perk-images/Styles/<Tree>/<Rune>/<Rune>.png"
+  name: string;
+  shortDesc: string;
+  longDesc: string;
+}
+
+export interface DDRuneSlot {
+  runes: DDRune[];
+}
+
+export interface DDRuneTree {
+  id: number;
+  key: string; // "Precision" | "Domination" | ...
+  icon: string; // "perk-images/Styles/7201_Precision.png"
+  name: string;
+  slots: DDRuneSlot[];
+}
+
+export type DDRunesData = DDRuneTree[];
+
+// Lookup built once from DDRunesData — used to resolve a rune name to its icon URL
+
+export interface RuneIconLookup {
+  /** key = rune display name (e.g. "Conqueror", "Legend: Alacrity") */
+  runeByName: Record<string, { icon: string; id: number; tree: RuneTree }>;
+  /** key = tree name */
+  treeByKey: Record<RuneTree, { icon: string; id: number }>;
+  /** key = shard display name (e.g. "Adaptive Force", "Health") */
+  shardByName: Record<string, string>;
+}
+
+export interface StarterOption {
+  items: ParsedItem[];
+  label: string; // "Standard", "Farming", "Lane-safe", "Snowball", etc.
+  notes: string[]; // e.g. "+ Health Potion", "vs ranged matchups"
+}
+
 export interface BuildResult {
   items: ParsedItem[];
   boot: ParsedItem | null;

@@ -182,35 +182,55 @@ function pickKeystone(
 function pickPrimaryRunes(tree: RuneTree, profile: RuneProfile, comp: EnemyCompAnalysis | null): string[] {
   switch (tree) {
     case 'Precision': {
-      const row2 = 'Triumph'; // almost always — heal + gold on takedown
+      // Row 2: Triumph (takedown heal+gold), Presence of Mind (mana restore), Absorb Life (minion heal)
+      const row2 = profile.usesMana && profile.ultReliant ? 'Presence of Mind' : 'Triumph';
+      // Row 3: Alacrity (AS), Haste (AH), Bloodline (lifesteal)
       let row3 = 'Legend: Alacrity';
-      if (comp && comp.ccScore >= 5) row3 = 'Legend: Tenacity';
-      else if (profile.critSynergy && profile.isMarksman) row3 = 'Legend: Bloodline';
+      if (profile.critSynergy && profile.isMarksman) row3 = 'Legend: Bloodline';
+      else if (profile.isMelee && profile.isFighter && !profile.critSynergy) row3 = 'Legend: Haste';
+      // Row 4: Coup de Grace, Cut Down, Last Stand
       let row4 = 'Coup de Grace';
       if (comp && comp.tankCount >= 2) row4 = 'Cut Down';
       else if (profile.isMelee && profile.isFighter) row4 = 'Last Stand';
       return [row2, row3, row4];
     }
     case 'Domination': {
-      const row2 = profile.burstPattern ? 'Cheap Shot' : 'Taste of Blood';
-      const row3 = 'Eyeball Collection';
+      // Row 2: Cheap Shot, Taste of Blood, Sudden Impact
+      let row2 = 'Taste of Blood';
+      if (profile.highMobility && profile.isAssassin) row2 = 'Sudden Impact';
+      else if (profile.burstPattern) row2 = 'Cheap Shot';
+      // Row 3: Sixth Sense, Grisly Mementos, Deep Ward — scaling pick = Grisly Mementos
+      const row3 = 'Grisly Mementos';
+      // Row 4: Treasure Hunter, Relentless Hunter, Ultimate Hunter
       const row4 = profile.ultReliant ? 'Ultimate Hunter' : 'Relentless Hunter';
       return [row2, row3, row4];
     }
     case 'Sorcery': {
-      const row2 = profile.usesMana ? 'Manaflow Band' : 'Nullifying Orb';
+      // Row 2: Axiom Arcanist (ult buff), Manaflow Band (mana scaling), Nimbus Cloak (MS post-summoner)
+      let row2: string;
+      if (profile.usesMana) row2 = 'Manaflow Band';
+      else if (profile.ultReliant) row2 = 'Axiom Arcanist';
+      else row2 = 'Nimbus Cloak';
+      // Row 3: Transcendence (AH thresholds), Celerity (MS→adaptive), Absolute Focus (full HP bonus)
       let row3 = 'Transcendence';
       if (profile.highMobility) row3 = 'Celerity';
+      // Row 4: Scorch (early harass), Waterwalking (river MS), Gathering Storm (late scaling)
       const row4 = profile.dotPattern || profile.burstPattern ? 'Scorch' : 'Gathering Storm';
       return [row2, row3, row4];
     }
     case 'Resolve': {
-      const row2 = profile.isSupport ? 'Font of Life' : 'Shield Bash';
+      // Row 2: Demolish, Font of Life, Shield Bash
+      const row2 = profile.isSupport ? 'Font of Life' : profile.isTank ? 'Demolish' : 'Shield Bash';
+      // Row 3: Conditioning (late resists), Second Wind (low HP regen), Bone Plating (burst absorb)
       const row3 = comp && comp.adThreat > 0.55 ? 'Conditioning' : comp && comp.apThreat > 0.55 ? 'Second Wind' : 'Bone Plating';
+      // Row 4: Overgrowth (HP scaling), Revitalize (heal/shield power), Unflinching (CC tenacity)
       const row4 = comp && comp.ccScore >= 5 ? 'Unflinching' : 'Overgrowth';
       return [row2, row3, row4];
     }
     case 'Inspiration': {
+      // Row 2: Hextech Flashtraption, Magical Footwear, Cash Back
+      // Row 3: Triple Tonic, Time Warp Tonic, Biscuit Delivery
+      // Row 4: Cosmic Insight, Approach Velocity, Jack Of All Trades
       return ['Magical Footwear', 'Biscuit Delivery', 'Cosmic Insight'];
     }
   }
@@ -257,17 +277,22 @@ function pickSecondaryTree(primary: RuneTree, archetype: Archetype, profile: Run
 function pickSecondaryRunes(tree: RuneTree, profile: RuneProfile, comp: EnemyCompAnalysis | null): string[] {
   switch (tree) {
     case 'Precision':
+      // row 2 + row 3 — valid cross-slot combo
       return ['Triumph', profile.critSynergy ? 'Legend: Bloodline' : 'Legend: Alacrity'];
     case 'Domination':
-      return [profile.burstPattern ? 'Cheap Shot' : 'Taste of Blood', 'Eyeball Collection'];
+      // row 2 + row 3
+      return [profile.burstPattern ? 'Cheap Shot' : 'Taste of Blood', 'Grisly Mementos'];
     case 'Sorcery':
+      // row 2/3 + row 4
       return [profile.usesMana ? 'Manaflow Band' : 'Transcendence', profile.dotPattern ? 'Scorch' : 'Gathering Storm'];
     case 'Resolve': {
+      // row 3 + row 4
       const adHeavy = comp && comp.adThreat > 0.55;
       const apHeavy = comp && comp.apThreat > 0.55;
       return [adHeavy ? 'Conditioning' : apHeavy ? 'Second Wind' : 'Bone Plating', 'Overgrowth'];
     }
     case 'Inspiration':
+      // row 2 + row 4
       return ['Magical Footwear', 'Cosmic Insight'];
   }
 }
