@@ -8,7 +8,9 @@ import type {
   BuildResult,
   BuildExplanation,
   ItemReason,
+  EnemyCompAnalysis,
 } from '../types';
+import { generateCounterStrategy } from './compAnalysis';
 
 // ─── Archetype detection ───────────────────────────────────────────
 
@@ -200,6 +202,7 @@ function computeSynergyWithReasons(
   profile: ChampionProfile,
   archetype: Archetype,
   alreadySelected: ParsedItem[],
+  comp: EnemyCompAnalysis | null,
 ): SynergyResult {
   let multiplier = 1.0;
   const reasons: string[] = [];
@@ -633,6 +636,13 @@ function computeSynergyWithReasons(
     multiplier *= 0.15;
   }
 
+  // ═══ COUNTER-ITEMIZATION (against enemy comp) ═══
+  if (comp) {
+    const counter = applyCounterItemization(item, comp);
+    multiplier *= counter.multiplier;
+    for (const r of counter.reasons) reasons.push(r);
+  }
+
   // Add generic stat-based reason if no specific reasons were generated
   if (reasons.length === 0) {
     const topStats = Object.entries(item.stats)
@@ -643,6 +653,169 @@ function computeSynergyWithReasons(
     if (topStats.length > 0) {
       reasons.push(`Gold-efficient source of ${topStats.join(' + ')}`);
     }
+  }
+
+  return { multiplier, reasons };
+}
+
+// ─── Counter-itemization against enemy comp ──────────────────────────
+//
+// Applied ON TOP of kit-based synergies. Re-weights items based on what
+// the enemy team threatens with.
+
+function applyCounterItemization(item: ParsedItem, comp: EnemyCompAnalysis): SynergyResult {
+  let multiplier = 1.0;
+  const reasons: string[] = [];
+  const name = item.name;
+
+  const {
+    adThreat, apThreat, mixedDamage, tankCount, squishyCount, ccScore,
+    healingThreat, autoAttackThreat, assassinThreat,
+  } = comp;
+
+  // ── Armor items vs AD ────────────────────────────────────────
+  if (item.stats.armor > 0) {
+    if (adThreat > 0.6) {
+      multiplier *= 1.3;
+      reasons.push(`Armor counters AD-heavy enemy comp (${Math.round(adThreat * 100)}% physical)`);
+    } else if (adThreat > 0.45) {
+      multiplier *= 1.15;
+      reasons.push(`Armor useful vs ${Math.round(adThreat * 100)}% enemy physical damage`);
+    } else if (apThreat > 0.7) {
+      multiplier *= 0.7;
+      reasons.push('Enemy comp is mostly magic damage — armor less valuable');
+    }
+  }
+
+  // ── Magic Resist items vs AP ─────────────────────────────────
+  if (item.stats.magicResist > 0) {
+    if (apThreat > 0.6) {
+      multiplier *= 1.3;
+      reasons.push(`MR counters AP-heavy enemy comp (${Math.round(apThreat * 100)}% magic)`);
+    } else if (apThreat > 0.45) {
+      multiplier *= 1.15;
+      reasons.push(`MR useful vs ${Math.round(apThreat * 100)}% enemy magic damage`);
+    } else if (adThreat > 0.7) {
+      multiplier *= 0.7;
+      reasons.push('Enemy comp is mostly physical damage — MR less valuable');
+    }
+  }
+
+  // ── Mixed damage — reward HP-heavy / balanced items ──────────
+  if (mixedDamage && item.stats.health >= 300 && (item.stats.armor > 0 || item.stats.magicResist > 0)) {
+    multiplier *= 1.1;
+    reasons.push('Balanced HP + resistance valuable vs mixed damage comp');
+  }
+
+  // ── % Penetration items vs tank-heavy comps ──────────────────
+  const isPercentPen = name.includes('Void Staff') || name.includes('Cryptbloom')
+    || name.includes('Lord Dominik') || name.includes("Blade of the Ruined King")
+    || name.includes('Terminus');
+  if (isPercentPen) {
+    if (tankCount >= 2) {
+      multiplier *= 1.5;
+      reasons.push(`${tankCount} enemy tanks/bruisers — %penetration shreds their resistances`);
+    } else if (tankCount === 1) {
+      multiplier *= 1.2;
+      reasons.push('1 enemy tank — %pen still valuable against them');
+    } else {
+      multiplier *= 0.85;
+      reasons.push('No enemy tanks — %pen less impactful than flat pen/lethality');
+    }
+  }
+
+  // ── Lethality / flat pen — better vs squishies, worse vs tanks ──
+  const isLethality = item.stats.lethality > 0 || (item.stats.armorPen > 0 && item.stats.armorPen < 0.3);
+  if (isLethality) {
+    if (squishyCount >= 3 && tankCount <= 1) {
+      multiplier *= 1.25;
+      reasons.push(`${squishyCount} squishy targets — lethality finds clean kills`);
+    } else if (tankCount >= 3) {
+      multiplier *= 0.7;
+      reasons.push('Tank-heavy comp — flat pen falls off vs stacked armor');
+    }
+  }
+
+  // ── Grievous Wounds items vs healing ─────────────────────────
+  const isAntiHeal = name.includes('Morellonomicon') || name.includes('Mortal Reminder')
+    || name.includes('Executioner') || name.includes('Chempunk') || name.includes('Oblivion Orb');
+  if (isAntiHeal) {
+    if (healingThreat >= 3) {
+      multiplier *= 2.0;
+      reasons.push(`${healingThreat} high-healing enemies — Grievous Wounds is critical`);
+    } else if (healingThreat >= 2) {
+      multiplier *= 1.6;
+      reasons.push(`${healingThreat} high-healing enemies — Grievous Wounds mandatory`);
+    } else if (healingThreat === 1) {
+      multiplier *= 1.25;
+      reasons.push('1 high-healing enemy — anti-heal worth the slot');
+    } else {
+      multiplier *= 0.5;
+      reasons.push('No major healing threats — anti-heal wastes a slot');
+    }
+  }
+
+  // ── Tenacity items vs CC ─────────────────────────────────────
+  const hasTenacity = item.stats.tenacity > 0
+    || name.includes('Sterak') || name.includes("Mercury's Treads")
+    || name.includes('Mercurial') || name.includes('Silvermere');
+  if (hasTenacity) {
+    if (ccScore >= 6) {
+      multiplier *= 1.4;
+      reasons.push(`Heavy CC comp (score ${ccScore}) — tenacity is mandatory to survive chain-CC`);
+    } else if (ccScore >= 4) {
+      multiplier *= 1.2;
+      reasons.push(`CC-heavy comp (score ${ccScore}) — tenacity helps land combos`);
+    } else if (ccScore <= 1) {
+      multiplier *= 0.85;
+      reasons.push('Low CC comp — tenacity less valuable');
+    }
+  }
+
+  // ── Anti auto-attack items ───────────────────────────────────
+  const isAntiAutoAttack = name.includes('Thornmail') || name.includes("Randuin")
+    || name.includes('Frozen Heart') || name.includes("Plated Steelcaps");
+  if (isAntiAutoAttack) {
+    if (autoAttackThreat >= 2) {
+      multiplier *= 1.5;
+      reasons.push(`${autoAttackThreat} auto-attack reliant enemies — counter with armor + AS slow/reflect`);
+    } else if (autoAttackThreat === 1) {
+      multiplier *= 1.2;
+      reasons.push('1 major auto-attacker — anti-AA item still worth it');
+    } else {
+      multiplier *= 0.7;
+      reasons.push('No major auto-attack threats — anti-AA niche wasted');
+    }
+  }
+
+  // ── Anti-assassin (HP stacking, Zhonya's, Banshee's, GA) ─────
+  const isAntiAssassin = name.includes("Zhonya") || name.includes('Banshee')
+    || name.includes('Guardian Angel');
+  if (isAntiAssassin) {
+    if (assassinThreat >= 2) {
+      multiplier *= 1.4;
+      reasons.push(`${assassinThreat} assassins on enemy team — active/passive saves you from burst`);
+    } else if (assassinThreat === 1) {
+      multiplier *= 1.15;
+      reasons.push('1 assassin threat — anti-burst keeps you alive');
+    }
+    // Zhonya's specifically vs AP comps — passive also gives AP
+    if (name.includes('Zhonya') && apThreat > 0.5) {
+      multiplier *= 1.1;
+      reasons.push('MR-deficient? Zhonya\'s armor protects vs AP-assassins anyway via stasis');
+    }
+  }
+
+  // ── HP vs assassins ──────────────────────────────────────────
+  if (item.stats.health >= 400 && assassinThreat >= 2) {
+    multiplier *= 1.1;
+    reasons.push(`HP pool survives burst from ${assassinThreat} assassins`);
+  }
+
+  // ── Crit/Lethality amplified vs squishy comps ────────────────
+  if (item.stats.critChance > 0 && squishyCount >= 4) {
+    multiplier *= 1.1;
+    reasons.push(`${squishyCount} squishies — crit finds easy one-shots`);
   }
 
   return { multiplier, reasons };
@@ -755,6 +928,7 @@ function baseScore(item: ParsedItem, weights: StatWeights): number {
 export function optimizeBuild(
   champion: DDChampion,
   allItems: ParsedItem[],
+  comp: EnemyCompAnalysis | null = null,
 ): BuildResult {
   const archetype = detectArchetype(champion);
   const weights = ARCHETYPE_WEIGHTS[archetype];
@@ -789,7 +963,7 @@ export function optimizeBuild(
       if (item.group && usedGroups.has(item.group)) continue;
 
       const base = baseScore(item, weights);
-      const synergy = computeSynergyWithReasons(item, profile, archetype, selectedItems);
+      const synergy = computeSynergyWithReasons(item, profile, archetype, selectedItems, comp);
       const score = base * synergy.multiplier;
 
       if (score > bestScore) {
@@ -815,7 +989,7 @@ export function optimizeBuild(
     let bestReasons: string[] = [];
     for (const boot of boots) {
       const base = baseScore(boot, weights);
-      const synergy = computeSynergyWithReasons(boot, profile, archetype, selectedItems);
+      const synergy = computeSynergyWithReasons(boot, profile, archetype, selectedItems, comp);
       const score = base * synergy.multiplier;
       if (score > bestScore) {
         bestScore = score;
@@ -834,7 +1008,7 @@ export function optimizeBuild(
   const totalGold = allBuildItems.reduce((sum, i) => sum + i.goldTotal, 0);
   const totalScore = allBuildItems.reduce((sum, i) => {
     const base = baseScore(i, weights);
-    const syn = computeSynergyWithReasons(i, profile, archetype, selectedItems);
+    const syn = computeSynergyWithReasons(i, profile, archetype, selectedItems, comp);
     return sum + base * syn.multiplier;
   }, 0);
 
@@ -845,6 +1019,8 @@ export function optimizeBuild(
     profileTraits: generateProfileTraits(profile, archetype),
     itemReasons,
     bootReason: bootReasonData,
+    compAnalysis: comp,
+    counterStrategy: comp ? generateCounterStrategy(comp) : [],
   };
 
   return {

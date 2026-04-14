@@ -7,6 +7,7 @@ interface BuildExplanationProps {
 
 export function BuildExplanationPanel({ explanation }: BuildExplanationProps) {
   const color = getArchetypeColor(explanation.archetype);
+  const { compAnalysis, counterStrategy } = explanation;
 
   return (
     <div className="bg-zaun-surface border border-zaun-border rounded-2xl overflow-hidden">
@@ -45,6 +46,34 @@ export function BuildExplanationPanel({ explanation }: BuildExplanationProps) {
           ))}
         </div>
       </div>
+
+      {/* Counter-comp analysis */}
+      {compAnalysis && counterStrategy.length > 0 && (
+        <div className="px-5 py-3 border-b border-zaun-border/50 bg-red-500/5">
+          <h4 className="text-xs font-semibold text-red-400 uppercase tracking-wide mb-2 flex items-center gap-2">
+            <span>&#9888;</span>
+            Counter-Itemization vs Enemy Comp
+          </h4>
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {compAnalysis.enemyNames.map((name, i) => (
+              <span
+                key={i}
+                className="text-[11px] px-2 py-0.5 rounded-full bg-red-500/10 text-red-300 border border-red-500/30"
+              >
+                {name}
+              </span>
+            ))}
+          </div>
+          <ul className="space-y-1">
+            {counterStrategy.map((s, i) => (
+              <li key={i} className="text-xs text-zaun-muted leading-snug flex gap-1.5">
+                <span className="text-red-400 mt-0.5 flex-shrink-0">&#x2022;</span>
+                <span>{s}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Item reasons */}
       <div className="px-5 py-3 space-y-3">

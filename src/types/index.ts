@@ -207,6 +207,8 @@ export interface BuildExplanation {
   profileTraits: string[];
   itemReasons: ItemReason[];
   bootReason: ItemReason | null;
+  compAnalysis: EnemyCompAnalysis | null;
+  counterStrategy: string[];
 }
 
 export interface BuildResult {
@@ -219,11 +221,41 @@ export interface BuildResult {
   explanation: BuildExplanation;
 }
 
+// Enemy composition analysis for counter-itemization
+
+export interface EnemyCompAnalysis {
+  /** 0..1 — ratio of enemy physical damage (based on info.attack and tags) */
+  adThreat: number;
+  /** 0..1 — ratio of enemy magic damage */
+  apThreat: number;
+  /** 0..1 — mixed damage penalty (neither side heavily dominant) */
+  mixedDamage: boolean;
+  /** Count of tanks / bruisers with HP stacking */
+  tankCount: number;
+  /** Count of squishy burst targets */
+  squishyCount: number;
+  /** 0..10 — subjective CC score (stuns, roots, knockups, etc.) */
+  ccScore: number;
+  /** Count of champions with significant healing/sustain (life steal, omnivamp, shielding) */
+  healingThreat: number;
+  /** Count of auto-attack reliant champions (marksmen, on-hit fighters) */
+  autoAttackThreat: number;
+  /** Count of assassins — burst from stealth/dashes */
+  assassinThreat: number;
+  /** Count of ranged poke threats */
+  rangedThreat: number;
+  /** Count of enemies — 0 to 5 */
+  teamSize: number;
+  /** List of enemy champion names (for display) */
+  enemyNames: string[];
+}
+
 export interface AppState {
   version: string | null;
   champions: DDChampion[];
   items: ParsedItem[];
   selectedChampion: DDChampion | null;
+  enemyTeam: (DDChampion | null)[];
   build: BuildResult | null;
   loading: boolean;
   error: string | null;
